@@ -268,3 +268,4 @@ Edit `public/styles.css` to change:
 ## License
 
 This project is open source and available under the MIT License.# crowd-funding-website
+# crowd-funding-app
