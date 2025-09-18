@@ -5,7 +5,7 @@ const Blockchain = require('./blockchain/blockchain');
 const Transaction = require('./blockchain/transaction');
 
 const app = express();
-const PORT = 3000;
+const PORT = 5000;
 
 // Initialize blockchain
 const crowdfundingBlockchain = new Blockchain();
