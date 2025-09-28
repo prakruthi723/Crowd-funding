@@ -5,7 +5,25 @@ let currentProjects = [];
 document.addEventListener('DOMContentLoaded', function() {
     loadProjects();
     setupFormHandlers();
+    checkMetaMaskAvailability();
 });
+
+// Check MetaMask availability and show notice if not installed
+function checkMetaMaskAvailability() {
+    if (!window.ethereum) {
+        const notice = document.createElement('div');
+        notice.className = 'metamask-notice';
+        notice.innerHTML = `
+            <strong>MetaMask Not Detected!</strong><br>
+            To use real blockchain transactions, please install 
+            <a href="https://metamask.io/" target="_blank">MetaMask</a> browser extension.
+            You can still use the platform with demo addresses.
+        `;
+        
+        const activeSection = document.querySelector('.section.active');
+        activeSection.insertBefore(notice, activeSection.firstChild);
+    }
+}
 
 // Navigation functions
 function showSection(event, sectionName) {
@@ -121,6 +139,12 @@ async function openProjectModal(projectId) {
             
             <div class="funding-form">
                 <h4>Fund this Project</h4>
+                ${!window.ethereum ? `
+                    <div class="metamask-notice" style="margin-bottom: 1rem;">
+                        <strong>Note:</strong> MetaMask not detected. You can still fund with demo addresses, 
+                        but no real blockchain transaction will occur.
+                    </div>
+                ` : ''}
                 <form id="funding-form" onsubmit="fundProject(event, ${project.id})">
                     <div class="form-group">
                         <label for="funding-amount">Amount (ETH):</label>
@@ -129,13 +153,28 @@ async function openProjectModal(projectId) {
                     <div class="form-group">
                         <label for="contributor-address">Your Wallet Address:</label>
                         <input type="text" id="contributor-address" placeholder="0x..." required>
+                        ${window.ethereum && metaMaskWallet.isConnected ? `
+                            <small style="color: #666;">Connected wallet address will be auto-filled</small>
+                        ` : ''}
                     </div>
-                    <button type="submit" class="btn btn-success">Fund Project</button>
+                    <div style="display: flex; gap: 1rem; align-items: center;">
+                        <button type="submit" class="btn btn-success">
+                            ${window.ethereum ? 'Fund with MetaMask' : 'Fund Project (Demo)'}
+                        </button>
+                        ${window.ethereum && !metaMaskWallet.isConnected ? `
+                            <small style="color: #666;">Connect wallet for real transactions</small>
+                        ` : ''}
+                    </div>
                 </form>
             </div>
         `;
         
         document.getElementById('project-modal').style.display = 'block';
+        
+        // Auto-fill wallet address if MetaMask is connected
+        if (window.ethereum && metaMaskWallet.isConnected) {
+            metaMaskWallet.autoFillWalletAddresses();
+        }
     } catch (error) {
         console.error('Error loading project details:', error);
         showMessage('Error loading project details', 'error');
@@ -160,6 +199,31 @@ async function fundProject(event, projectId) {
     }
     
     try {
+        let transactionHash = null;
+        
+        // If MetaMask is available and connected, send real transaction
+        if (window.ethereum && metaMaskWallet.isConnected) {
+            try {
+                // Get project details to get creator address
+                const projectResponse = await fetch(`/api/projects/${projectId}`);
+                const project = await projectResponse.json();
+                
+                showMessage('Please confirm the transaction in MetaMask...', 'info');
+                
+                // Send real blockchain transaction
+                transactionHash = await metaMaskWallet.sendTransaction(
+                    project.creator_address, 
+                    parseFloat(amount)
+                );
+                
+                showMessage('Transaction sent! Waiting for confirmation...', 'info');
+            } catch (metaMaskError) {
+                console.error('MetaMask transaction failed:', metaMaskError);
+                showMessage('MetaMask transaction failed: ' + metaMaskError.message, 'error');
+                return;
+            }
+        }
+        
         const response = await fetch(`/api/projects/${projectId}/fund`, {
             method: 'POST',
             headers: {
@@ -167,14 +231,18 @@ async function fundProject(event, projectId) {
             },
             body: JSON.stringify({
                 amount: parseFloat(amount),
-                contributorAddress: contributorAddress
+                contributorAddress: contributorAddress,
+                realTransactionHash: transactionHash
             })
         });
         
         const result = await response.json();
         
         if (response.ok) {
-            showMessage(`Successfully funded with ${amount} ETH! Transaction: ${result.transactionHash}`, 'success');
+            const message = transactionHash 
+                ? `Successfully funded with ${amount} ETH! Real transaction: ${transactionHash}`
+                : `Successfully funded with ${amount} ETH! Demo transaction: ${result.transactionHash}`;
+            showMessage(message, 'success');
             closeModal();
             loadProjects(); // Refresh projects list
         } else {
@@ -197,6 +265,12 @@ function setupFormHandlers() {
         const goalAmount = document.getElementById('goalAmount').value;
         const creatorAddress = document.getElementById('creatorAddress').value;
         
+        // Validate Ethereum address format if MetaMask is available
+        if (window.ethereum && !/^0x[a-fA-F0-9]{40}$/.test(creatorAddress)) {
+            showMessage('Please enter a valid Ethereum address (0x...)', 'error');
+            return;
+        }
+        
         try {
             const response = await fetch('/api/projects', {
                 method: 'POST',
@@ -216,7 +290,9 @@ function setupFormHandlers() {
             if (response.ok) {
                 showMessage('Project created successfully!', 'success');
                 createForm.reset();
-                showSection('projects'); // Switch to projects tab
+                // Switch to projects tab
+                const projectsBtn = document.querySelector('.nav-btn[onclick*="projects"]');
+                showSection({ target: projectsBtn }, 'projects');
                 loadProjects(); // Refresh projects list
             } else {
                 showMessage(result.error || 'Error creating project', 'error');
@@ -293,7 +369,7 @@ function showMessage(message, type) {
     
     // Create new message
     const messageDiv = document.createElement('div');
-    messageDiv.className = type === 'success' ? 'success-message' : 'error-message';
+    messageDiv.className = type === 'success' ? 'success-message' : 
     messageDiv.textContent = message;
     
     // Insert at top of current active section
@@ -301,11 +377,12 @@ function showMessage(message, type) {
     activeSection.insertBefore(messageDiv, activeSection.firstChild);
     
     // Auto remove after 5 seconds
+    const timeout = type === 'info' ? 10000 : 5000;
     setTimeout(() => {
         if (messageDiv.parentNode) {
             messageDiv.remove();
         }
-    }, 5000);
+    }, timeout);
 }
 
 // Close modal when clicking outside

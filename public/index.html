@@ -5,11 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Blockchain Crowdfunding Platform</title>
     <link rel="stylesheet" href="styles.css">
+    <script src="metamask.js"></script>
 </head>
 <body>
     <header>
         <div class="container">
             <h1>🚀 Blockchain Crowdfunding</h1>
+            <div class="wallet-section">
+                <button id="connect-wallet-btn" class="btn btn-primary">Connect Wallet</button>
+                <div id="wallet-info" class="wallet-info" style="display: none;">
+                    <div class="wallet-details">
+                        <span id="wallet-address"></span>
+                        <span id="wallet-balance"></span>
+                    </div>
+                </div>
+            </div>
             <nav>
                 <button onclick="showSection(event, 'projects')" class="nav-btn active">Projects</button>
                 <button onclick="showSection(event, 'create')" class="nav-btn">Create Project</button>

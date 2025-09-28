@@ -118,7 +118,7 @@ app.get('/api/projects/:id', (req, res) => {
 // Fund a project
 app.post('/api/projects/:id/fund', (req, res) => {
     const projectId = req.params.id;
-    const { amount, contributorAddress } = req.body;
+    const { amount, contributorAddress, realTransactionHash } = req.body;
     
     if (!amount || !contributorAddress) {
         return res.status(400).json({ error: 'Amount and contributor address are required' });
@@ -157,9 +157,11 @@ app.post('/api/projects/:id/fund', (req, res) => {
                 }
                 
                 // Record contribution
+                const transactionHashToStore = realTransactionHash || transaction.hash;
+                
                 db.run(
                     'INSERT INTO contributions (project_id, contributor_address, amount, transaction_hash) VALUES (?, ?, ?, ?)',
-                    [projectId, contributorAddress, amount, transaction.hash],
+                    [projectId, contributorAddress, amount, transactionHashToStore],
                     (err) => {
                         if (err) {
                             res.status(500).json({ error: err.message });
@@ -168,7 +170,8 @@ app.post('/api/projects/:id/fund', (req, res) => {
                         
                         res.json({ 
                             message: 'Funding successful',
-                            transactionHash: transaction.hash,
+                            transactionHash: transactionHashToStore,
+                            realTransaction: !!realTransactionHash,
                             newAmount: newAmount
                         });
                     }
