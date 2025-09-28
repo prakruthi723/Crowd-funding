@@ -254,6 +254,70 @@ async function fundProject(event, projectId) {
     }
 }
 
+// Request refund for a contribution
+async function requestRefund(projectId, contributionId, amount) {
+    if (!window.ethereum || !metaMaskWallet.isConnected) {
+        showMessage('Please connect MetaMask to request refunds', 'error');
+        return;
+    }
+    
+    const confirmRefund = confirm(`Are you sure you want to request a refund of ${amount} ETH? This action cannot be undone.`);
+    if (!confirmRefund) {
+        return;
+    }
+    
+    try {
+        let transactionHash = null;
+        
+        // Get project details to get creator address
+        const projectResponse = await fetch(`/api/projects/${projectId}`);
+        const project = await projectResponse.json();
+        
+        showMessage('Please confirm the refund transaction in MetaMask...', 'info');
+        
+        // Send real blockchain transaction (creator sends ETH back to contributor)
+        // Note: In a real implementation, this would be handled by a smart contract
+        try {
+            transactionHash = await metaMaskWallet.sendTransaction(
+                metaMaskWallet.account, 
+                parseFloat(amount)
+            );
+            
+            showMessage('Refund transaction sent! Processing...', 'info');
+        } catch (metaMaskError) {
+            console.error('MetaMask refund transaction failed:', metaMaskError);
+            showMessage('MetaMask transaction failed: ' + metaMaskError.message, 'error');
+            return;
+        }
+        
+        const response = await fetch(`/api/projects/${projectId}/refund`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                contributionId: contributionId,
+                refundAddress: metaMaskWallet.account,
+                realTransactionHash: transactionHash
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            const message = `Refund processed successfully! ${amount} ETH refunded. Transaction: ${transactionHash}`;
+            showMessage(message, 'success');
+            closeModal();
+            loadProjects(); // Refresh projects list
+        } else {
+            showMessage(result.error || 'Error processing refund', 'error');
+        }
+    } catch (error) {
+        console.error('Error requesting refund:', error);
+        showMessage('Error processing refund request', 'error');
+    }
+}
+
 // Setup form handlers
 function setupFormHandlers() {
     const createForm = document.getElementById('create-form');

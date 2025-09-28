@@ -49,6 +49,21 @@ function initializeDatabase() {
             FOREIGN KEY (project_id) REFERENCES projects (id)
         )
     `);
+    
+    db.run(`
+        CREATE TABLE IF NOT EXISTS refunds (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            contribution_id INTEGER,
+            project_id INTEGER,
+            contributor_address TEXT NOT NULL,
+            refund_amount REAL NOT NULL,
+            transaction_hash TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            status TEXT DEFAULT 'completed',
+            FOREIGN KEY (contribution_id) REFERENCES contributions (id),
+            FOREIGN KEY (project_id) REFERENCES projects (id)
+        )
+    `);
 }
 
 // Routes
@@ -186,6 +201,94 @@ app.get('/api/blockchain', (req, res) => {
     res.json({
         blocks: crowdfundingBlockchain.chain,
         isValid: crowdfundingBlockchain.isChainValid()
+    });
+});
+
+// Request refund for a contribution
+app.post('/api/projects/:id/refund', (req, res) => {
+    const projectId = req.params.id;
+    const { contributionId, refundAddress, realTransactionHash } = req.body;
+    
+    if (!contributionId || !refundAddress) {
+        return res.status(400).json({ error: 'Contribution ID and refund address are required' });
+    }
+    
+    // Get contribution details
+    db.get('SELECT * FROM contributions WHERE id = ? AND project_id = ?', [contributionId, projectId], (err, contribution) => {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        if (!contribution) {
+            res.status(404).json({ error: 'Contribution not found' });
+            return;
+        }
+        
+        // Get project details
+        db.get('SELECT * FROM projects WHERE id = ?', [projectId], (err, project) => {
+            if (err) {
+                res.status(500).json({ error: err.message });
+                return;
+            }
+            
+            // Create refund blockchain transaction
+            const refundTransaction = new Transaction(project.creator_address, refundAddress, contribution.amount, 'refund', projectId);
+            
+            // Add transaction to blockchain
+            crowdfundingBlockchain.addTransaction(refundTransaction);
+            
+            // Mine the block
+            crowdfundingBlockchain.minePendingTransactions('miner-address');
+            
+            // Update project funding amount
+            const newAmount = Math.max(0, project.current_amount - contribution.amount);
+            
+            db.run(
+                'UPDATE projects SET current_amount = ? WHERE id = ?',
+                [newAmount, projectId],
+                (err) => {
+                    if (err) {
+                        res.status(500).json({ error: err.message });
+                        return;
+                    }
+                    
+                    // Record refund
+                    const transactionHashToStore = realTransactionHash || refundTransaction.hash;
+                    
+                    db.run(
+                        'INSERT INTO refunds (contribution_id, project_id, contributor_address, refund_amount, transaction_hash) VALUES (?, ?, ?, ?, ?)',
+                        [contributionId, projectId, refundAddress, contribution.amount, transactionHashToStore],
+                        (err) => {
+                            if (err) {
+                                res.status(500).json({ error: err.message });
+                                return;
+                            }
+                            
+                            res.json({ 
+                                message: 'Refund processed successfully',
+                                transactionHash: transactionHashToStore,
+                                realTransaction: !!realTransactionHash,
+                                refundAmount: contribution.amount,
+                                newProjectAmount: newAmount
+                            });
+                        }
+                    );
+                }
+            );
+        });
+    });
+});
+
+// Get refunds for a project
+app.get('/api/projects/:id/refunds', (req, res) => {
+    const projectId = req.params.id;
+    
+    db.all('SELECT * FROM refunds WHERE project_id = ? ORDER BY created_at DESC', [projectId], (err, refunds) => {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        res.json(refunds);
     });
 });
 
