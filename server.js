@@ -34,6 +34,7 @@ function initializeDatabase() {
             current_amount REAL DEFAULT 0,
             creator_address TEXT NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            deadline DATETIME NOT NULL,
             status TEXT DEFAULT 'active'
         )
     `);
@@ -86,15 +87,15 @@ app.get('/api/projects', (req, res) => {
 
 // Create new project
 app.post('/api/projects', (req, res) => {
-    const { title, description, goalAmount, creatorAddress } = req.body;
-    
-    if (!title || !description || !goalAmount || !creatorAddress) {
+    const { title, description, goalAmount, creatorAddress, deadline } = req.body;
+
+    if (!title || !description || !goalAmount || !creatorAddress || !deadline) {
         return res.status(400).json({ error: 'All fields are required' });
     }
-    
+
     db.run(
-        'INSERT INTO projects (title, description, goal_amount, creator_address) VALUES (?, ?, ?, ?)',
-        [title, description, goalAmount, creatorAddress],
+        'INSERT INTO projects (title, description, goal_amount, creator_address, deadline) VALUES (?, ?, ?, ?, ?)',
+        [title, description, goalAmount, creatorAddress, deadline],
         function(err) {
             if (err) {
                 res.status(500).json({ error: err.message });
@@ -108,7 +109,7 @@ app.post('/api/projects', (req, res) => {
 // Get project by ID
 app.get('/api/projects/:id', (req, res) => {
     const projectId = req.params.id;
-    
+
     db.get('SELECT * FROM projects WHERE id = ?', [projectId], (err, project) => {
         if (err) {
             res.status(500).json({ error: err.message });
@@ -118,14 +119,38 @@ app.get('/api/projects/:id', (req, res) => {
             res.status(404).json({ error: 'Project not found' });
             return;
         }
-        
+
         // Get contributions for this project
         db.all('SELECT * FROM contributions WHERE project_id = ?', [projectId], (err, contributions) => {
             if (err) {
                 res.status(500).json({ error: err.message });
                 return;
             }
-            res.json({ ...project, contributions });
+
+            // Calculate unique donors
+            const uniqueDonors = [...new Set(contributions.map(c => c.contributor_address))];
+
+            // Check if deadline passed and goal not met
+            const now = new Date();
+            const deadline = new Date(project.deadline);
+            const isExpired = now > deadline;
+            const goalMet = project.current_amount >= project.goal_amount;
+
+            // Auto-update status if needed
+            if (isExpired && !goalMet && project.status === 'active') {
+                db.run('UPDATE projects SET status = ? WHERE id = ?', ['failed', projectId]);
+                project.status = 'failed';
+            } else if (goalMet && project.status === 'active') {
+                db.run('UPDATE projects SET status = ? WHERE id = ?', ['funded', projectId]);
+                project.status = 'funded';
+            }
+
+            res.json({
+                ...project,
+                contributions,
+                donorCount: uniqueDonors.length,
+                uniqueDonors: uniqueDonors
+            });
         });
     });
 });
@@ -282,13 +307,184 @@ app.post('/api/projects/:id/refund', (req, res) => {
 // Get refunds for a project
 app.get('/api/projects/:id/refunds', (req, res) => {
     const projectId = req.params.id;
-    
+
     db.all('SELECT * FROM refunds WHERE project_id = ? ORDER BY created_at DESC', [projectId], (err, refunds) => {
         if (err) {
             res.status(500).json({ error: err.message });
             return;
         }
         res.json(refunds);
+    });
+});
+
+// Withdraw funds (creator only when goal is met)
+app.post('/api/projects/:id/withdraw', (req, res) => {
+    const projectId = req.params.id;
+    const { creatorAddress, realTransactionHash } = req.body;
+
+    if (!creatorAddress) {
+        return res.status(400).json({ error: 'Creator address is required' });
+    }
+
+    // Get project details
+    db.get('SELECT * FROM projects WHERE id = ?', [projectId], (err, project) => {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        if (!project) {
+            res.status(404).json({ error: 'Project not found' });
+            return;
+        }
+
+        // Verify creator
+        if (project.creator_address.toLowerCase() !== creatorAddress.toLowerCase()) {
+            return res.status(403).json({ error: 'Only the creator can withdraw funds' });
+        }
+
+        // Check if goal is met
+        if (project.current_amount < project.goal_amount) {
+            return res.status(400).json({ error: 'Goal not reached yet. Cannot withdraw funds.' });
+        }
+
+        // Check if already withdrawn
+        if (project.status === 'withdrawn') {
+            return res.status(400).json({ error: 'Funds already withdrawn' });
+        }
+
+        // Create withdrawal blockchain transaction
+        const withdrawalTransaction = new Transaction(
+            'platform',
+            creatorAddress,
+            project.current_amount,
+            'withdrawal',
+            projectId
+        );
+
+        // Add transaction to blockchain
+        crowdfundingBlockchain.addTransaction(withdrawalTransaction);
+
+        // Mine the block
+        crowdfundingBlockchain.minePendingTransactions('miner-address');
+
+        // Update project status to withdrawn
+        db.run(
+            'UPDATE projects SET status = ? WHERE id = ?',
+            ['withdrawn', projectId],
+            (err) => {
+                if (err) {
+                    res.status(500).json({ error: err.message });
+                    return;
+                }
+
+                res.json({
+                    message: 'Funds withdrawn successfully',
+                    amount: project.current_amount,
+                    transactionHash: realTransactionHash || withdrawalTransaction.hash,
+                    realTransaction: !!realTransactionHash
+                });
+            }
+        );
+    });
+});
+
+// Auto-refund for failed campaigns
+app.post('/api/projects/:id/auto-refund', (req, res) => {
+    const projectId = req.params.id;
+
+    // Get project details
+    db.get('SELECT * FROM projects WHERE id = ?', [projectId], (err, project) => {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        if (!project) {
+            res.status(404).json({ error: 'Project not found' });
+            return;
+        }
+
+        // Check if deadline passed and goal not met
+        const now = new Date();
+        const deadline = new Date(project.deadline);
+        const isExpired = now > deadline;
+        const goalMet = project.current_amount >= project.goal_amount;
+
+        if (!isExpired || goalMet) {
+            return res.status(400).json({ error: 'Campaign is still active or goal was met' });
+        }
+
+        // Get all contributions that haven't been refunded
+        db.all(
+            `SELECT c.* FROM contributions c
+             LEFT JOIN refunds r ON c.id = r.contribution_id
+             WHERE c.project_id = ? AND r.id IS NULL`,
+            [projectId],
+            (err, contributions) => {
+                if (err) {
+                    res.status(500).json({ error: err.message });
+                    return;
+                }
+
+                if (contributions.length === 0) {
+                    return res.json({ message: 'All contributions already refunded', refundCount: 0 });
+                }
+
+                // Process refunds for all contributors
+                let refundCount = 0;
+                let errors = [];
+
+                contributions.forEach((contribution, index) => {
+                    // Create refund blockchain transaction
+                    const refundTransaction = new Transaction(
+                        project.creator_address,
+                        contribution.contributor_address,
+                        contribution.amount,
+                        'auto-refund',
+                        projectId
+                    );
+
+                    // Add transaction to blockchain
+                    crowdfundingBlockchain.addTransaction(refundTransaction);
+
+                    // Record refund
+                    db.run(
+                        'INSERT INTO refunds (contribution_id, project_id, contributor_address, refund_amount, transaction_hash, status) VALUES (?, ?, ?, ?, ?, ?)',
+                        [contribution.id, projectId, contribution.contributor_address, contribution.amount, refundTransaction.hash, 'completed'],
+                        (err) => {
+                            if (err) {
+                                errors.push(err.message);
+                            } else {
+                                refundCount++;
+                            }
+
+                            // If this is the last contribution, send response
+                            if (index === contributions.length - 1) {
+                                // Mine all refund transactions
+                                crowdfundingBlockchain.minePendingTransactions('miner-address');
+
+                                // Update project status and reset current amount
+                                db.run(
+                                    'UPDATE projects SET status = ?, current_amount = 0 WHERE id = ?',
+                                    ['refunded', projectId],
+                                    (err) => {
+                                        if (err) {
+                                            res.status(500).json({ error: err.message });
+                                            return;
+                                        }
+
+                                        res.json({
+                                            message: `Auto-refund processed for ${refundCount} contributions`,
+                                            refundCount: refundCount,
+                                            errors: errors.length > 0 ? errors : null
+                                        });
+                                    }
+                                );
+                            }
+                        }
+                    );
+                });
+            }
+        );
     });
 });
 

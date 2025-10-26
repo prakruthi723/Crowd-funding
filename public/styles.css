@@ -280,7 +280,9 @@ main {
     padding: 2rem;
     border-radius: 15px;
     width: 90%;
-    max-width: 600px;
+    max-width: 700px;
+    max-height: 85vh;
+    overflow-y: auto;
     position: relative;
     animation: slideIn 0.3s ease;
 }
@@ -389,6 +391,10 @@ footer {
     background: #d1ecf1;
     color: #0c5460;
     border: 1px solid #bee5eb;
+    padding: 1rem;
+    border-radius: 8px;
+    margin: 1rem 0;
+    font-weight: 500;
 }
 
 @media (max-width: 768px) {

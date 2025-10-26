@@ -5,10 +5,11 @@ A comprehensive full-stack crowdfunding platform built with Node.js, Express, SQ
 ## 🚀 Features
 
 ### Core Functionality
-- ✅ Create crowdfunding projects with detailed information
+- ✅ Create crowdfunding projects with deadline and detailed information
 - ✅ Fund projects with real blockchain transactions via MetaMask
-- ✅ **Refund System**: Request and process refunds for failed projects
-- ✅ View project details and real-time funding progress
+- ✅ **Refund System**: Automatic refunds for expired campaigns that didn't meet goals
+- ✅ **Withdrawal System**: Creators can withdraw funds once goal is reached
+- ✅ View comprehensive project details including donor list and time remaining
 - ✅ Custom blockchain implementation with proof-of-work mining
 - ✅ Complete transaction history and validation
 - ✅ Responsive web interface with modern design
@@ -34,7 +35,10 @@ A comprehensive full-stack crowdfunding platform built with Node.js, Express, SQ
 
 ### 💰 Financial Features
 - ✅ **Project Funding**: Support projects with ETH contributions
-- ✅ **Refund System**: Request refunds for unsuccessful projects
+- ✅ **Deadline Management**: Campaigns with time limits
+- ✅ **Automatic Refund System**: Auto-refund when deadline expires without meeting goal
+- ✅ **Withdrawal System**: Creators withdraw funds when goal is met before deadline
+- ✅ **Donor Tracking**: View all donor addresses and contribution counts
 - ✅ **Automatic Calculations**: Real-time funding progress tracking
 - ✅ **Transaction History**: Complete audit trail of all transactions
 - ✅ **Balance Management**: Track user balances and contributions
@@ -147,16 +151,22 @@ blockchain-crowdfunding/
    - **Title**: Catchy name for your project
    - **Description**: Detailed explanation of your project goals
    - **Funding Goal**: Target amount in ETH (e.g., 1.5 ETH)
+   - **Campaign Deadline**: Date and time when the campaign expires
    - **Wallet Address**: Your Ethereum address (auto-filled if MetaMask connected)
 3. Click **"Create Project"**
-4. Project appears in the main projects list
+4. Project appears in the main projects list with status badge
 
 ### 💰 Funding a Project
 
 1. Navigate to the **"Projects"** section
 2. Click on any project card to open detailed view
-3. Review project information and funding progress
-4. Scroll to **"Fund this Project"** section
+3. Review comprehensive project information:
+   - **Campaign Details**: Title, description, creator address
+   - **Deadline Information**: Time remaining or expired status
+   - **Funding Progress**: Current amount, goal, and percentage
+   - **Donor Information**: Total number of donors and their addresses
+   - **Recent Contributions**: Latest funding transactions
+4. If campaign is active and not expired, scroll to **"Fund this Project"** section
 5. Enter funding details:
    - **Amount**: Contribution amount in ETH (e.g., 0.1 ETH)
    - **Wallet Address**: Your address (auto-filled with MetaMask)
@@ -165,15 +175,36 @@ blockchain-crowdfunding/
 8. **Without MetaMask**: Creates demo transaction for testing
 9. Transaction is processed and added to blockchain
 
-### 🔄 Requesting Refunds
+### 🔄 Automatic Refunds
 
-1. Open a project you've contributed to
-2. Scroll to the **"Request Refund"** section (appears for contributors)
-3. Select the contribution you want to refund
-4. Click **"Request Refund"**
-5. **With MetaMask**: Confirm refund transaction
-6. **Without MetaMask**: Creates demo refund transaction
-7. Refund is processed and ETH returned to your wallet
+**When Campaign Expires Without Meeting Goal:**
+
+1. Open an expired project that didn't reach its funding goal
+2. An alert banner appears showing "Campaign Expired"
+3. Click **"Process Auto-Refund"** button
+4. System automatically refunds ALL contributors
+5. Each donor receives their full contribution back
+6. Project status updates to "Refunded"
+7. All transactions are recorded on the blockchain
+
+**Campaign Status Indicators:**
+- **Active**: Campaign is running and accepting contributions
+- **Funded**: Goal reached, awaiting withdrawal
+- **Withdrawn**: Creator has withdrawn the funds
+- **Failed**: Deadline expired without meeting goal
+- **Refunded**: All contributions have been refunded
+
+### 💸 Withdrawing Funds (Creators Only)
+
+**When Campaign Reaches Goal:**
+
+1. Open your project that has reached its funding goal
+2. A success banner appears showing "Goal Reached!"
+3. Connect your MetaMask wallet (must match creator address)
+4. Click **"Withdraw Funds"** button
+5. Confirm the withdrawal in MetaMask
+6. Funds are transferred to your wallet
+7. Project status updates to "Withdrawn"
 
 ### 📊 Viewing Blockchain Information
 
@@ -221,7 +252,10 @@ blockchain-crowdfunding/
 
 ### Funding Operations
 - `POST /api/projects/:id/fund` - Fund a specific project with ETH
-- `POST /api/projects/:id/refund` - Request refund for project contribution
+- `POST /api/projects/:id/withdraw` - Creator withdraws funds when goal is met
+- `POST /api/projects/:id/auto-refund` - Process automatic refund for expired campaign
+- `POST /api/projects/:id/refund` - Manual refund request for specific contribution
+- `GET /api/projects/:id/refunds` - Get all refunds for a project
 - `GET /api/projects/:id/contributions` - Get all contributions for a project
 
 ### Blockchain Information
@@ -245,9 +279,8 @@ CREATE TABLE projects (
     current_amount REAL DEFAULT 0,
     creator_address TEXT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    status TEXT DEFAULT 'active',
-    deadline DATETIME,
-    category TEXT DEFAULT 'general'
+    deadline DATETIME NOT NULL,
+    status TEXT DEFAULT 'active'
 );
 ```
 
