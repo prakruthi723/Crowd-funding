@@ -34,11 +34,24 @@ function initializeDatabase() {
             current_amount REAL DEFAULT 0,
             creator_address TEXT NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            deadline DATETIME NOT NULL,
+            deadline DATETIME,
             status TEXT DEFAULT 'active'
         )
-    `);
-    
+    `, (err) => {
+        if (err) {
+            console.error('Error creating projects table:', err);
+        } else {
+            // Add deadline column if it doesn't exist (migration)
+            db.run(`
+                ALTER TABLE projects ADD COLUMN deadline DATETIME
+            `, (err) => {
+                if (err && !err.message.includes('duplicate column')) {
+                    console.error('Error adding deadline column:', err);
+                }
+            });
+        }
+    });
+
     db.run(`
         CREATE TABLE IF NOT EXISTS contributions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,7 +63,7 @@ function initializeDatabase() {
             FOREIGN KEY (project_id) REFERENCES projects (id)
         )
     `);
-    
+
     db.run(`
         CREATE TABLE IF NOT EXISTS refunds (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -89,13 +102,13 @@ app.get('/api/projects', (req, res) => {
 app.post('/api/projects', (req, res) => {
     const { title, description, goalAmount, creatorAddress, deadline } = req.body;
 
-    if (!title || !description || !goalAmount || !creatorAddress || !deadline) {
-        return res.status(400).json({ error: 'All fields are required' });
+    if (!title || !description || !goalAmount || !creatorAddress) {
+        return res.status(400).json({ error: 'Title, description, goal amount, and creator address are required' });
     }
 
     db.run(
         'INSERT INTO projects (title, description, goal_amount, creator_address, deadline) VALUES (?, ?, ?, ?, ?)',
-        [title, description, goalAmount, creatorAddress, deadline],
+        [title, description, goalAmount, creatorAddress, deadline || null],
         function(err) {
             if (err) {
                 res.status(500).json({ error: err.message });
@@ -130,19 +143,28 @@ app.get('/api/projects/:id', (req, res) => {
             // Calculate unique donors
             const uniqueDonors = [...new Set(contributions.map(c => c.contributor_address))];
 
-            // Check if deadline passed and goal not met
-            const now = new Date();
-            const deadline = new Date(project.deadline);
-            const isExpired = now > deadline;
-            const goalMet = project.current_amount >= project.goal_amount;
+            // Check if deadline passed and goal not met (only if deadline exists)
+            if (project.deadline) {
+                const now = new Date();
+                const deadline = new Date(project.deadline);
+                const isExpired = now > deadline;
+                const goalMet = project.current_amount >= project.goal_amount;
 
-            // Auto-update status if needed
-            if (isExpired && !goalMet && project.status === 'active') {
-                db.run('UPDATE projects SET status = ? WHERE id = ?', ['failed', projectId]);
-                project.status = 'failed';
-            } else if (goalMet && project.status === 'active') {
-                db.run('UPDATE projects SET status = ? WHERE id = ?', ['funded', projectId]);
-                project.status = 'funded';
+                // Auto-update status if needed
+                if (isExpired && !goalMet && project.status === 'active') {
+                    db.run('UPDATE projects SET status = ? WHERE id = ?', ['failed', projectId]);
+                    project.status = 'failed';
+                } else if (goalMet && project.status === 'active') {
+                    db.run('UPDATE projects SET status = ? WHERE id = ?', ['funded', projectId]);
+                    project.status = 'funded';
+                }
+            } else {
+                // No deadline - just check if goal is met
+                const goalMet = project.current_amount >= project.goal_amount;
+                if (goalMet && project.status === 'active') {
+                    db.run('UPDATE projects SET status = ? WHERE id = ?', ['funded', projectId]);
+                    project.status = 'funded';
+                }
             }
 
             res.json({

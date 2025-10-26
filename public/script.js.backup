@@ -97,6 +97,245 @@ function displayProjects(projects) {
     }).join('');
 }
 
+// Open project modal with details
+async function openProjectModal(projectId) {
+    try {
+        const response = await fetch(`/api/projects/${projectId}`);
+        const project = await response.json();
+
+        const progress = (project.current_amount / project.goal_amount) * 100;
+        const progressCapped = Math.min(progress, 100);
+
+        let deadline, timeRemaining, daysRemaining, hoursRemaining, isExpired, timeRemainingText;
+
+        if (project.deadline) {
+            deadline = new Date(project.deadline);
+            const now = new Date();
+            timeRemaining = deadline - now;
+            daysRemaining = Math.ceil(timeRemaining / (1000 * 60 * 60 * 24));
+            hoursRemaining = Math.ceil(timeRemaining / (1000 * 60 * 60));
+            isExpired = timeRemaining <= 0;
+
+            if (isExpired) {
+                timeRemainingText = '<span style="color: #dc3545;">Expired</span>';
+            } else if (daysRemaining > 0) {
+                timeRemainingText = `<span style="color: #28a745;">${daysRemaining} day${daysRemaining !== 1 ? 's' : ''} remaining</span>`;
+            } else {
+                timeRemainingText = `<span style="color: #ffc107;">${hoursRemaining} hour${hoursRemaining !== 1 ? 's' : ''} remaining</span>`;
+            }
+        } else {
+            isExpired = false;
+            timeRemainingText = '<span style="color: #6c757d;">No deadline set</span>';
+        }
+
+        const goalMet = project.current_amount >= project.goal_amount;
+
+        const statusBadge = project.status === 'active' ? '<span style="background: #28a745; color: white; padding: 4px 12px; border-radius: 4px; font-size: 0.9rem;">Active</span>' :
+            project.status === 'funded' ? '<span style="background: #007bff; color: white; padding: 4px 12px; border-radius: 4px; font-size: 0.9rem;">Funded</span>' :
+            project.status === 'withdrawn' ? '<span style="background: #6c757d; color: white; padding: 4px 12px; border-radius: 4px; font-size: 0.9rem;">Withdrawn</span>' :
+            project.status === 'failed' ? '<span style="background: #dc3545; color: white; padding: 4px 12px; border-radius: 4px; font-size: 0.9rem;">Failed</span>' :
+            project.status === 'refunded' ? '<span style="background: #ffc107; color: black; padding: 4px 12px; border-radius: 4px; font-size: 0.9rem;">Refunded</span>' : '';
+
+        const modalBody = document.getElementById('modal-body');
+        modalBody.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
+                <h2 style="margin: 0;">${escapeHtml(project.title)}</h2>
+                ${statusBadge}
+            </div>
+
+            <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div>
+                        <p style="margin: 0; color: #666; font-size: 0.9rem;">Creator</p>
+                        <p style="margin: 0.25rem 0 0 0; font-family: monospace; font-size: 0.85rem;">${project.creator_address.substring(0, 20)}...</p>
+                    </div>
+                    ${project.deadline ? `
+                        <div>
+                            <p style="margin: 0; color: #666; font-size: 0.9rem;">Deadline</p>
+                            <p style="margin: 0.25rem 0 0 0;">${deadline.toLocaleDateString()} ${deadline.toLocaleTimeString()}</p>
+                        </div>
+                    ` : ''}
+                    ${project.deadline ? `
+                        <div>
+                            <p style="margin: 0; color: #666; font-size: 0.9rem;">Time Remaining</p>
+                            <p style="margin: 0.25rem 0 0 0;">${timeRemainingText}</p>
+                        </div>
+                    ` : ''}
+                    <div>
+                        <p style="margin: 0; color: #666; font-size: 0.9rem;">Number of Donors</p>
+                        <p style="margin: 0.25rem 0 0 0;"><strong>${project.donorCount || 0}</strong> donor${project.donorCount !== 1 ? 's' : ''}</p>
+                    </div>
+                </div>
+            </div>
+
+            <p style="margin-bottom: 2rem; line-height: 1.6;">${escapeHtml(project.description)}</p>
+
+            <div style="margin-bottom: 2rem;">
+                <h4 style="margin-bottom: 0.5rem;">Funding Progress</h4>
+                <div class="progress-bar" style="height: 12px;">
+                    <div class="progress-fill" style="width: ${progressCapped}%"></div>
+                </div>
+                <div class="project-stats" style="margin-top: 0.5rem;">
+                    <span><strong>${project.current_amount || 0} ETH</strong> raised of <strong>${project.goal_amount} ETH</strong></span>
+                    <span><strong>${progressCapped.toFixed(1)}%</strong> funded</span>
+                </div>
+            </div>
+
+            ${project.contributions && project.contributions.length > 0 ? `
+                <div style="margin-bottom: 2rem;">
+                    <h4>Donor Addresses (${project.donorCount}):</h4>
+                    <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; margin-top: 0.5rem;">
+                        ${project.uniqueDonors.map(donor => `
+                            <div style="font-family: monospace; font-size: 0.85rem; padding: 0.25rem 0;">${donor}</div>
+                        `).join('')}
+                    </div>
+
+                    <h4 style="margin-top: 1.5rem;">Recent Contributions:</h4>
+                    <div style="max-height: 200px; overflow-y: auto; margin-top: 1rem;">
+                        ${project.contributions.slice(-5).reverse().map(contribution => `
+                            <div class="transaction">
+                                <strong>${contribution.amount} ETH</strong> from ${contribution.contributor_address.substring(0, 10)}...
+                                <br><small>Transaction: ${contribution.transaction_hash || 'N/A'}</small>
+                                <br><small>${new Date(contribution.created_at).toLocaleString()}</small>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            ` : '<p style="color: #666; text-align: center; padding: 1rem; background: #f8f9fa; border-radius: 8px;">No contributions yet. Be the first to fund this project!</p>'}
+
+            ${!isExpired && project.status === 'active' ? `
+                <div class="funding-form">
+                    <h4>Fund this Project</h4>
+                    ${!window.ethereum ? `
+                        <div class="metamask-notice" style="margin-bottom: 1rem;">
+                            <strong>Note:</strong> MetaMask not detected. You can still fund with demo addresses,
+                            but no real blockchain transaction will occur.
+                        </div>
+                    ` : ''}
+                    <form id="funding-form" onsubmit="fundProject(event, ${project.id})">
+                        <div class="form-group">
+                            <label for="funding-amount">Amount (ETH):</label>
+                            <input type="number" id="funding-amount" step="0.001" min="0.001" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="contributor-address">Your Wallet Address:</label>
+                            <input type="text" id="contributor-address" placeholder="0x..." required>
+                            ${window.ethereum && metaMaskWallet.isConnected ? `
+                                <small style="color: #666;">Connected wallet address will be auto-filled</small>
+                            ` : ''}
+                        </div>
+                        <div style="display: flex; gap: 1rem; align-items: center;">
+                            <button type="submit" class="btn btn-success">
+                                ${window.ethereum ? 'Fund with MetaMask' : 'Fund Project (Demo)'}
+                            </button>
+                            ${window.ethereum && !metaMaskWallet.isConnected ? `
+                                <small style="color: #666;">Connect wallet for real transactions</small>
+                            ` : ''}
+                        </div>
+                    </form>
+                </div>
+            ` : ''}
+
+            ${goalMet && project.status === 'funded' && window.ethereum && metaMaskWallet.isConnected ? `
+                <div style="margin-top: 2rem; padding: 1rem; background: #d4edda; border-radius: 8px; border: 1px solid #c3e6cb;">
+                    <h4 style="color: #155724; margin-top: 0;">Goal Reached!</h4>
+                    <p style="color: #155724; margin-bottom: 1rem;">This campaign has reached its funding goal. The creator can now withdraw the funds.</p>
+                    <button onclick="withdrawFunds(${project.id}, '${project.creator_address}', ${project.current_amount})" class="btn btn-success">
+                        Withdraw Funds (${project.current_amount} ETH)
+                    </button>
+                </div>
+            ` : ''}
+
+            ${project.deadline && isExpired && !goalMet && project.status !== 'refunded' && project.contributions && project.contributions.length > 0 ? `
+                <div style="margin-top: 2rem; padding: 1rem; background: #f8d7da; border-radius: 8px; border: 1px solid #f5c6cb;">
+                    <h4 style="color: #721c24; margin-top: 0;">Campaign Expired</h4>
+                    <p style="color: #721c24; margin-bottom: 1rem;">This campaign has expired without reaching its goal. All contributors will be automatically refunded.</p>
+                    <button onclick="triggerAutoRefund(${project.id})" class="btn" style="background: #dc3545; color: white;">
+                        Process Auto-Refund
+                    </button>
+                </div>
+            ` : ''}
+
+            ${project.status === 'withdrawn' ? `
+                <div style="margin-top: 2rem; padding: 1rem; background: #d1ecf1; border-radius: 8px; border: 1px solid #bee5eb;">
+                    <p style="color: #0c5460; margin: 0;">Funds have been withdrawn by the creator.</p>
+                </div>
+            ` : ''}
+
+            ${project.status === 'refunded' ? `
+                <div style="margin-top: 2rem; padding: 1rem; background: #fff3cd; border-radius: 8px; border: 1px solid #ffeaa7;">
+                    <p style="color: #856404; margin: 0;">All funds have been refunded to contributors.</p>
+                </div>
+            ` : ''}
+        `;
+
+        document.getElementById('project-modal').style.display = 'block';
+
+        // Auto-fill wallet address if MetaMask is connected
+        if (window.ethereum && metaMaskWallet.isConnected) {
+            metaMaskWallet.autoFillWalletAddresses();
+        }
+    } catch (error) {
+        console.error('Error loading project details:', error);
+        showMessage('Error loading project details', 'error');
+    }
+}
+                </div>
+            ` : ''}
+
+            ${project.status === 'withdrawn' ? `
+                <div style="margin-top: 2rem; padding: 1rem; background: #d1ecf1; border-radius: 8px; border: 1px solid #bee5eb;">
+                    <p style="color: #0c5460; margin: 0;">Funds have been withdrawn by the creator.</p>
+                </div>
+            ` : ''}
+
+            ${project.status === 'refunded' ? `
+                <div style="margin-top: 2rem; padding: 1rem; background: #fff3cd; border-radius: 8px; border: 1px solid #ffeaa7;">
+                    <p style="color: #856404; margin: 0;">All funds have been refunded to contributors.</p>
+                </div>
+            ` : ''}
+        `;
+
+        document.getElementById('project-modal').style.display = 'block';
+
+        // Auto-fill wallet address if MetaMask is connected
+        if (window.ethereum && metaMaskWallet.isConnected) {
+            metaMaskWallet.autoFillWalletAddresses();
+        }
+    } catch (error) {
+        console.error('Error loading project details:', error);
+        showMessage('Error loading project details', 'error');
+    }
+}
+
+// Close modal
+function closeModal() {
+    document.getElementById('project-modal').style.display = 'none';
+}
+
+// Fund project
+async function fundProject(event, projectId) {
+    event.preventDefault();
+    
+    const amount = document.getElementById('funding-amount').value;
+    const contributorAddress = document.getElementById('contributor-address').value;
+    
+    if (!amount || !contributorAddress) {
+        showMessage('Please fill in all fields', 'error');
+        return;
+    }
+    
+    try {
+        let transactionHash = null;
+        
+        // If MetaMask is available and connected, send real transaction
+        if (window.ethereum && metaMaskWallet.isConnected) {
+            try {
+                // Get project details to get creator address
+                const projectResponse = await fetch(`/api/projects/${projectId}`);
+                const project = await projectResponse.json();
+                
+                showMessage('Please confirm the transaction in MetaMask...', 'info');
                 
                 // Send real blockchain transaction
                 transactionHash = await metaMaskWallet.sendTransaction(
@@ -429,142 +668,4 @@ window.addEventListener('click', function(event) {
     if (event.target === modal) {
         closeModal();
     }
-// Open project modal with details
-async function openProjectModal(projectId) {
-    try {
-        const response = await fetch(`/api/projects/${projectId}`);
-        const project = await response.json();
-
-        const progress = (project.current_amount / project.goal_amount) * 100;
-        const progressCapped = Math.min(progress, 100);
-
-        let deadline, timeRemaining, daysRemaining, hoursRemaining, isExpired, timeRemainingText;
-
-        if (project.deadline) {
-            deadline = new Date(project.deadline);
-            const now = new Date();
-            timeRemaining = deadline - now;
-            daysRemaining = Math.ceil(timeRemaining / (1000 * 60 * 60 * 24));
-            hoursRemaining = Math.ceil(timeRemaining / (1000 * 60 * 60));
-            isExpired = timeRemaining <= 0;
-
-            if (isExpired) {
-                timeRemainingText = '<span style="color: #dc3545;">Expired</span>';
-            } else if (daysRemaining > 0) {
-                timeRemainingText = `<span style="color: #28a745;">${daysRemaining} day${daysRemaining !== 1 ? 's' : ''} remaining</span>`;
-            } else {
-                timeRemainingText = `<span style="color: #ffc107;">${hoursRemaining} hour${hoursRemaining !== 1 ? 's' : ''} remaining</span>`;
-            }
-        } else {
-            isExpired = false;
-            timeRemainingText = '<span style="color: #6c757d;">No deadline set</span>';
-        }
-
-        const goalMet = project.current_amount >= project.goal_amount;
-
-        const statusBadge = project.status === 'active' ? '<span style="background: #28a745; color: white; padding: 4px 12px; border-radius: 4px; font-size: 0.9rem;">Active</span>' :
-            project.status === 'funded' ? '<span style="background: #007bff; color: white; padding: 4px 12px; border-radius: 4px; font-size: 0.9rem;">Funded</span>' :
-            project.status === 'withdrawn' ? '<span style="background: #6c757d; color: white; padding: 4px 12px; border-radius: 4px; font-size: 0.9rem;">Withdrawn</span>' :
-            project.status === 'failed' ? '<span style="background: #dc3545; color: white; padding: 4px 12px; border-radius: 4px; font-size: 0.9rem;">Failed</span>' :
-            project.status === 'refunded' ? '<span style="background: #ffc107; color: black; padding: 4px 12px; border-radius: 4px; font-size: 0.9rem;">Refunded</span>' : '';
-
-        const modalBody = document.getElementById('modal-body');
-        modalBody.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
-                <h2 style="margin: 0;">${escapeHtml(project.title)}</h2>
-                ${statusBadge}
-            </div>
-
-            <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem;">
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                    <div>
-                        <p style="margin: 0; color: #666; font-size: 0.9rem;">Creator</p>
-                        <p style="margin: 0.25rem 0 0 0; font-family: monospace; font-size: 0.85rem;">${project.creator_address.substring(0, 20)}...</p>
-                    </div>
-                    ${project.deadline ? `
-                        <div>
-                            <p style="margin: 0; color: #666; font-size: 0.9rem;">Deadline</p>
-                            <p style="margin: 0.25rem 0 0 0;">${deadline.toLocaleDateString()} ${deadline.toLocaleTimeString()}</p>
-                        </div>
-                    ` : ''}
-                    ${project.deadline ? `
-                        <div>
-                            <p style="margin: 0; color: #666; font-size: 0.9rem;">Time Remaining</p>
-                            <p style="margin: 0.25rem 0 0 0;">${timeRemainingText}</p>
-                        </div>
-                    ` : ''}
-                    <div>
-                        <p style="margin: 0; color: #666; font-size: 0.9rem;">Number of Donors</p>
-                        <p style="margin: 0.25rem 0 0 0;"><strong>${project.donorCount || 0}</strong> donor${project.donorCount !== 1 ? 's' : ''}</p>
-                    </div>
-                </div>
-            </div>
-
-            <p style="margin-bottom: 2rem; line-height: 1.6;">${escapeHtml(project.description)}</p>
-
-            <div style="margin-bottom: 2rem;">
-                <h4 style="margin-bottom: 0.5rem;">Funding Progress</h4>
-                <div class="progress-bar" style="height: 12px;">
-                    <div class="progress-fill" style="width: ${progressCapped}%"></div>
-                </div>
-                <div class="project-stats" style="margin-top: 0.5rem;">
-                    <span><strong>${project.current_amount || 0} ETH</strong> raised of <strong>${project.goal_amount} ETH</strong></span>
-                    <span><strong>${progressCapped.toFixed(1)}%</strong> funded</span>
-                </div>
-            </div>
-
-            ${project.contributions && project.contributions.length > 0 ? `
-                <div style="margin-bottom: 2rem;">
-                    <h4>Donor Addresses (${project.donorCount}):</h4>
-                    <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; margin-top: 0.5rem;">
-                        ${project.uniqueDonors.map(donor => `
-                            <div style="font-family: monospace; font-size: 0.85rem; padding: 0.25rem 0;">${donor}</div>
-                        `).join('')}
-                    </div>
-
-                    <h4 style="margin-top: 1.5rem;">Recent Contributions:</h4>
-                    <div style="max-height: 200px; overflow-y: auto; margin-top: 1rem;">
-                        ${project.contributions.slice(-5).reverse().map(contribution => `
-                            <div class="transaction">
-                                <strong>${contribution.amount} ETH</strong> from ${contribution.contributor_address.substring(0, 10)}...
-                                <br><small>Transaction: ${contribution.transaction_hash || 'N/A'}</small>
-                                <br><small>${new Date(contribution.created_at).toLocaleString()}</small>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            ` : '<p style="color: #666; text-align: center; padding: 1rem; background: #f8f9fa; border-radius: 8px;">No contributions yet. Be the first to fund this project!</p>'}
-
-            ${!isExpired && project.status === 'active' ? `
-                <div class="funding-form">
-                    <h4>Fund this Project</h4>
-                    ${!window.ethereum ? `
-                        <div class="metamask-notice" style="margin-bottom: 1rem;">
-                            <strong>Note:</strong> MetaMask not detected. You can still fund with demo addresses,
-                            but no real blockchain transaction will occur.
-                        </div>
-                    ` : ''}
-                    <form id="funding-form" onsubmit="fundProject(event, ${project.id})">
-                        <div class="form-group">
-                            <label for="funding-amount">Amount (ETH):</label>
-                            <input type="number" id="funding-amount" step="0.001" min="0.001" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="contributor-address">Your Wallet Address:</label>
-                            <input type="text" id="contributor-address" placeholder="0x..." required>
-                            ${window.ethereum && metaMaskWallet.isConnected ? `
-                                <small style="color: #666;">Connected wallet address will be auto-filled</small>
-                            ` : ''}
-                        </div>
-                        <div style="display: flex; gap: 1rem; align-items: center;">
-                            <button type="submit" class="btn btn-success">
-                                ${window.ethereum ? 'Fund with MetaMask' : 'Fund Project (Demo)'}
-                            </button>
-                            ${window.ethereum && !metaMaskWallet.isConnected ? `
-                                <small style="color: #666;">Connect wallet for real transactions</small>
-                            ` : ''}
-                        </div>
-                    </form>
-                </div>
-            ` : ''}
-
+});
