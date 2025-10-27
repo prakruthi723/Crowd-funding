@@ -95,6 +95,9 @@ async function openProjectModal(projectId) {
         const response = await fetch(`/api/projects/${projectId}`);
         const project = await response.json();
 
+        const refundsResponse = await fetch(`/api/projects/${projectId}/refunds`);
+        const refunds = await refundsResponse.json();
+
         const progress = (project.current_amount / project.goal_amount) * 100;
         const progressCapped = Math.min(progress, 100);
 
@@ -120,10 +123,14 @@ async function openProjectModal(projectId) {
             timeRemainingText = '<span style="color: #6c757d;">No deadline set</span>';
         }
 
+        const goalMet = project.current_amount >= project.goal_amount;
+        const campaignFailed = isExpired && !goalMet && project.status === 'failed';
+        const canAutoRefund = campaignFailed && project.contributions && project.contributions.length > 0 && refunds.length < project.contributions.length;
+
         const statusBadge = project.status === 'active' ? '<span style="background: #28a745; color: white; padding: 4px 12px; border-radius: 4px; font-size: 0.9rem;">Active</span>' :
             project.status === 'funded' ? '<span style="background: #007bff; color: white; padding: 4px 12px; border-radius: 4px; font-size: 0.9rem;">Funded</span>' :
             project.status === 'withdrawn' ? '<span style="background: #6c757d; color: white; padding: 4px 12px; border-radius: 4px; font-size: 0.9rem;">Withdrawn</span>' :
-            project.status === 'failed' ? '<span style="background: #dc3545; color: white; padding: 4px 12px; border-radius: 4px; font-size: 0.9rem;">Failed</span>' :
+            project.status === 'failed' ? '<span style="background: #dc3545; color: white; padding: 4px 12px; border-radius: 4px; font-size: 0.9rem;">Failed - Refund Required</span>' :
             project.status === 'refunded' ? '<span style="background: #ffc107; color: black; padding: 4px 12px; border-radius: 4px; font-size: 0.9rem;">Refunded</span>' : '';
 
         const modalBody = document.getElementById('modal-body');
@@ -234,6 +241,38 @@ async function openProjectModal(projectId) {
                     <button onclick="withdrawFunds(${project.id}, '${project.creator_address}', ${project.current_amount})" class="btn btn-primary">
                         Withdraw ${project.current_amount} ETH
                     </button>
+                </div>
+            ` : ''}
+
+            ${campaignFailed && canAutoRefund ? `
+                <div style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid #eee; background: #fff3cd; padding: 1.5rem; border-radius: 8px;">
+                    <h4 style="color: #856404; margin-bottom: 0.5rem;">Campaign Failed</h4>
+                    <p style="color: #856404; margin-bottom: 1rem;">This campaign expired without reaching its goal. Contributors can request refunds.</p>
+                    <button onclick="triggerAutoRefund(${project.id})" class="btn btn-warning">
+                        Process All Refunds (${project.contributions.length - refunds.length} pending)
+                    </button>
+                </div>
+            ` : ''}
+
+            ${refunds.length > 0 ? `
+                <div style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid #eee;">
+                    <h4>Refund History</h4>
+                    <div style="max-height: 200px; overflow-y: auto; margin-top: 1rem;">
+                        ${refunds.map(refund => `
+                            <div class="transaction refund-item">
+                                <strong>${refund.refund_amount} ETH</strong> refunded to ${refund.contributor_address.substring(0, 10)}...
+                                <br><small>Transaction: ${refund.transaction_hash || 'N/A'}</small>
+                                <br><small>${new Date(refund.created_at).toLocaleString()}</small>
+                                <br><small style="color: #28a745;">Status: ${refund.status}</small>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            ` : ''}
+
+            ${project.status === 'refunded' && refunds.length === 0 ? `
+                <div style="margin-top: 2rem; padding: 1rem; background: #d4edda; border-radius: 8px; color: #155724;">
+                    <strong>All contributions have been refunded.</strong>
                 </div>
             ` : ''}
         `;
@@ -361,6 +400,37 @@ async function withdrawFunds(projectId, creatorAddress, amount) {
     } catch (error) {
         console.error('Error withdrawing funds:', error);
         showMessage('Error withdrawing funds', 'error');
+    }
+}
+
+async function triggerAutoRefund(projectId) {
+    const confirmRefund = confirm('This will process refunds for all contributors who have not yet been refunded. Are you sure?');
+    if (!confirmRefund) {
+        return;
+    }
+
+    try {
+        showMessage('Processing refunds for all contributors...', 'info');
+
+        const response = await fetch(`/api/projects/${projectId}/auto-refund`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+            showMessage(result.message, 'success');
+            closeModal();
+            loadProjects();
+        } else {
+            showMessage(result.error || 'Error processing refunds', 'error');
+        }
+    } catch (error) {
+        console.error('Error processing refunds:', error);
+        showMessage('Error processing refunds', 'error');
     }
 }
 
