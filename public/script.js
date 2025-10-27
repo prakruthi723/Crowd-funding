@@ -1,49 +1,44 @@
-// Global variables
 let currentProjects = [];
 
-// DOM Content Loaded
 document.addEventListener('DOMContentLoaded', function() {
     loadProjects();
     setupFormHandlers();
     checkMetaMaskAvailability();
 });
 
-// Check MetaMask availability and show notice if not installed
 function checkMetaMaskAvailability() {
     if (!window.ethereum) {
         const notice = document.createElement('div');
         notice.className = 'metamask-notice';
         notice.innerHTML = `
             <strong>MetaMask Not Detected!</strong><br>
-            To use real blockchain transactions, please install 
+            To use real blockchain transactions, please install
             <a href="https://metamask.io/" target="_blank">MetaMask</a> browser extension.
             You can still use the platform with demo addresses.
         `;
-        
+
         const activeSection = document.querySelector('.section.active');
-        activeSection.insertBefore(notice, activeSection.firstChild);
+        if (activeSection) {
+            activeSection.insertBefore(notice, activeSection.firstChild);
+        }
     }
 }
 
-// Navigation functions
 function showSection(event, sectionName) {
-    // Hide all sections
     document.querySelectorAll('.section').forEach(section => {
         section.classList.remove('active');
     });
-    
-    // Remove active class from all nav buttons
+
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.classList.remove('active');
     });
-    
-    // Show selected section
+
     document.getElementById(sectionName).classList.add('active');
-    
-    // Add active class to clicked button
-    event.target.classList.add('active');
-    
-    // Load specific content based on section
+
+    if (event && event.target) {
+        event.target.classList.add('active');
+    }
+
     if (sectionName === 'projects') {
         loadProjects();
     } else if (sectionName === 'blockchain') {
@@ -51,7 +46,6 @@ function showSection(event, sectionName) {
     }
 }
 
-// Load projects from API
 async function loadProjects() {
     try {
         const response = await fetch('/api/projects');
@@ -64,19 +58,18 @@ async function loadProjects() {
     }
 }
 
-// Display projects in grid
 function displayProjects(projects) {
     const projectsList = document.getElementById('projects-list');
-    
+
     if (projects.length === 0) {
         projectsList.innerHTML = '<p style="text-align: center; color: #666; grid-column: 1/-1;">No projects found. Create the first one!</p>';
         return;
     }
-    
+
     projectsList.innerHTML = projects.map(project => {
         const progress = (project.current_amount / project.goal_amount) * 100;
         const progressCapped = Math.min(progress, 100);
-        
+
         return `
             <div class="project-card" onclick="openProjectModal(${project.id})">
                 <h3>${escapeHtml(project.title)}</h3>
@@ -97,339 +90,6 @@ function displayProjects(projects) {
     }).join('');
 }
 
-                
-                // Send real blockchain transaction
-                transactionHash = await metaMaskWallet.sendTransaction(
-                    project.creator_address, 
-                    parseFloat(amount)
-                );
-                
-                showMessage('Transaction sent! Waiting for confirmation...', 'info');
-            } catch (metaMaskError) {
-                console.error('MetaMask transaction failed:', metaMaskError);
-                showMessage('MetaMask transaction failed: ' + metaMaskError.message, 'error');
-                return;
-            }
-        }
-        
-        const response = await fetch(`/api/projects/${projectId}/fund`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                amount: parseFloat(amount),
-                contributorAddress: contributorAddress,
-                realTransactionHash: transactionHash
-            })
-        });
-        
-        const result = await response.json();
-        
-        if (response.ok) {
-            const message = transactionHash 
-                ? `Successfully funded with ${amount} ETH! Real transaction: ${transactionHash}`
-                : `Successfully funded with ${amount} ETH! Demo transaction: ${result.transactionHash}`;
-            showMessage(message, 'success');
-            closeModal();
-            loadProjects(); // Refresh projects list
-        } else {
-            showMessage(result.error || 'Error funding project', 'error');
-        }
-    } catch (error) {
-        console.error('Error funding project:', error);
-        showMessage('Error funding project', 'error');
-    }
-}
-
-// Request refund for a contribution
-async function requestRefund(projectId, contributionId, amount) {
-    if (!window.ethereum || !metaMaskWallet.isConnected) {
-        showMessage('Please connect MetaMask to request refunds', 'error');
-        return;
-    }
-    
-    const confirmRefund = confirm(`Are you sure you want to request a refund of ${amount} ETH? This action cannot be undone.`);
-    if (!confirmRefund) {
-        return;
-    }
-    
-    try {
-        let transactionHash = null;
-        
-        // Get project details to get creator address
-        const projectResponse = await fetch(`/api/projects/${projectId}`);
-        const project = await projectResponse.json();
-        
-        showMessage('Please confirm the refund transaction in MetaMask...', 'info');
-        
-        // Send real blockchain transaction (creator sends ETH back to contributor)
-        // Note: In a real implementation, this would be handled by a smart contract
-        try {
-            transactionHash = await metaMaskWallet.sendTransaction(
-                metaMaskWallet.account, 
-                parseFloat(amount)
-            );
-            
-            showMessage('Refund transaction sent! Processing...', 'info');
-        } catch (metaMaskError) {
-            console.error('MetaMask refund transaction failed:', metaMaskError);
-            showMessage('MetaMask transaction failed: ' + metaMaskError.message, 'error');
-            return;
-        }
-        
-        const response = await fetch(`/api/projects/${projectId}/refund`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                contributionId: contributionId,
-                refundAddress: metaMaskWallet.account,
-                realTransactionHash: transactionHash
-            })
-        });
-        
-        const result = await response.json();
-        
-        if (response.ok) {
-            const message = `Refund processed successfully! ${amount} ETH refunded. Transaction: ${transactionHash}`;
-            showMessage(message, 'success');
-            closeModal();
-            loadProjects(); // Refresh projects list
-        } else {
-            showMessage(result.error || 'Error processing refund', 'error');
-        }
-    } catch (error) {
-        console.error('Error requesting refund:', error);
-        showMessage('Error processing refund request', 'error');
-    }
-}
-
-// Withdraw funds (creator only)
-async function withdrawFunds(projectId, creatorAddress, amount) {
-    if (!window.ethereum || !metaMaskWallet.isConnected) {
-        showMessage('Please connect MetaMask to withdraw funds', 'error');
-        return;
-    }
-
-    const confirmWithdraw = confirm(`Are you sure you want to withdraw ${amount} ETH? This action cannot be undone.`);
-    if (!confirmWithdraw) {
-        return;
-    }
-
-    try {
-        showMessage('Processing withdrawal...', 'info');
-
-        const response = await fetch(`/api/projects/${projectId}/withdraw`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                creatorAddress: metaMaskWallet.account
-            })
-        });
-
-        const result = await response.json();
-
-        if (response.ok) {
-            showMessage(`Successfully withdrew ${result.amount} ETH! Transaction: ${result.transactionHash}`, 'success');
-            closeModal();
-            loadProjects();
-        } else {
-            showMessage(result.error || 'Error withdrawing funds', 'error');
-        }
-    } catch (error) {
-        console.error('Error withdrawing funds:', error);
-        showMessage('Error withdrawing funds', 'error');
-    }
-}
-
-// Trigger auto-refund for expired campaigns
-async function triggerAutoRefund(projectId) {
-    const confirmRefund = confirm('This will refund all contributors. Are you sure?');
-    if (!confirmRefund) {
-        return;
-    }
-
-    try {
-        showMessage('Processing auto-refund for all contributors...', 'info');
-
-        const response = await fetch(`/api/projects/${projectId}/auto-refund`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            }
-        });
-
-        const result = await response.json();
-
-        if (response.ok) {
-            showMessage(result.message, 'success');
-            closeModal();
-            loadProjects();
-        } else {
-            showMessage(result.error || 'Error processing auto-refund', 'error');
-        }
-    } catch (error) {
-        console.error('Error processing auto-refund:', error);
-        showMessage('Error processing auto-refund', 'error');
-    }
-}
-
-// Setup form handlers
-function setupFormHandlers() {
-    const createForm = document.getElementById('create-form');
-    createForm.addEventListener('submit', async function(event) {
-        event.preventDefault();
-
-        const title = document.getElementById('title').value;
-        const description = document.getElementById('description').value;
-        const goalAmount = document.getElementById('goalAmount').value;
-        const creatorAddress = document.getElementById('creatorAddress').value;
-        const deadline = document.getElementById('deadline').value;
-
-        // Validate Ethereum address format if MetaMask is available
-        if (window.ethereum && !/^0x[a-fA-F0-9]{40}$/.test(creatorAddress)) {
-            showMessage('Please enter a valid Ethereum address (0x...)', 'error');
-            return;
-        }
-
-        // Validate deadline is in the future (if provided)
-        let deadlineDate = null;
-        if (deadline) {
-            deadlineDate = new Date(deadline);
-            const now = new Date();
-            if (deadlineDate <= now) {
-                showMessage('Deadline must be in the future', 'error');
-                return;
-            }
-        }
-
-        try {
-            const response = await fetch('/api/projects', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    title,
-                    description,
-                    goalAmount: parseFloat(goalAmount),
-                    creatorAddress,
-                    deadline: deadlineDate ? deadlineDate.toISOString() : null
-                })
-            });
-
-            const result = await response.json();
-
-            if (response.ok) {
-                showMessage('Project created successfully!', 'success');
-                createForm.reset();
-                // Switch to projects tab
-                const projectsBtn = document.querySelector('.nav-btn[onclick*="projects"]');
-                showSection({ target: projectsBtn }, 'projects');
-                loadProjects(); // Refresh projects list
-            } else {
-                showMessage(result.error || 'Error creating project', 'error');
-            }
-        } catch (error) {
-            console.error('Error creating project:', error);
-            showMessage('Error creating project', 'error');
-        }
-    });
-}
-
-// Load blockchain information
-async function loadBlockchainInfo() {
-    try {
-        const response = await fetch('/api/blockchain');
-        const blockchainData = await response.json();
-        
-        const blockchainInfo = document.getElementById('blockchain-info');
-        blockchainInfo.innerHTML = `
-            <div class="blockchain-info">
-                <h3>Blockchain Status</h3>
-                <p><strong>Chain Valid:</strong> ${blockchainData.isValid ? '✅ Yes' : '❌ No'}</p>
-                <p><strong>Total Blocks:</strong> ${blockchainData.blocks.length}</p>
-            </div>
-            
-            <div>
-                <h3>Recent Blocks</h3>
-                ${blockchainData.blocks.slice(-5).reverse().map((block, index) => `
-                    <div class="block">
-                        <h4>Block #${blockchainData.blocks.length - index - 1}</h4>
-                        <p><strong>Hash:</strong> ${block.hash}</p>
-                        <p><strong>Previous Hash:</strong> ${block.previousHash}</p>
-                        <p><strong>Timestamp:</strong> ${new Date(block.timestamp).toLocaleString()}</p>
-                        <p><strong>Nonce:</strong> ${block.nonce}</p>
-                        <p><strong>Transactions:</strong> ${block.transactions.length}</p>
-                        
-                        ${block.transactions.length > 0 ? `
-                            <div style="margin-top: 1rem;">
-                                <strong>Transactions:</strong>
-                                ${block.transactions.map(tx => `
-                                    <div class="transaction">
-                                        <strong>${tx.type}:</strong> ${tx.amount} ETH
-                                        <br><small>From: ${tx.fromAddress || 'System'}</small>
-                                        <br><small>To: ${tx.toAddress}</small>
-                                        ${tx.projectId ? `<br><small>Project ID: ${tx.projectId}</small>` : ''}
-                                    </div>
-                                `).join('')}
-                            </div>
-                        ` : ''}
-                    </div>
-                `).join('')}
-            </div>
-        `;
-    } catch (error) {
-        console.error('Error loading blockchain info:', error);
-        showMessage('Error loading blockchain information', 'error');
-    }
-}
-
-// Utility functions
-function escapeHtml(unsafe) {
-    return unsafe
-         .replace(/&/g, "&amp;")
-         .replace(/</g, "&lt;")
-         .replace(/>/g, "&gt;")
-         .replace(/"/g, "&quot;")
-         .replace(/'/g, "&#039;");
-}
-
-function showMessage(message, type) {
-    // Remove existing messages
-    const existingMessages = document.querySelectorAll('.success-message, .error-message, .info-message');
-    existingMessages.forEach(msg => msg.remove());
-
-    // Create new message
-    const messageDiv = document.createElement('div');
-    messageDiv.className = type === 'success' ? 'success-message' :
-                          type === 'info' ? 'info-message' : 'error-message';
-    messageDiv.textContent = message;
-
-    // Insert at top of current active section
-    const activeSection = document.querySelector('.section.active');
-    activeSection.insertBefore(messageDiv, activeSection.firstChild);
-
-    // Auto remove after 5 seconds
-    const timeout = type === 'info' ? 10000 : 5000;
-    setTimeout(() => {
-        if (messageDiv.parentNode) {
-            messageDiv.remove();
-        }
-    }, timeout);
-}
-
-// Close modal when clicking outside
-window.addEventListener('click', function(event) {
-    const modal = document.getElementById('project-modal');
-    if (event.target === modal) {
-        closeModal();
-    }
-// Open project modal with details
 async function openProjectModal(projectId) {
     try {
         const response = await fetch(`/api/projects/${projectId}`);
@@ -459,8 +119,6 @@ async function openProjectModal(projectId) {
             isExpired = false;
             timeRemainingText = '<span style="color: #6c757d;">No deadline set</span>';
         }
-
-        const goalMet = project.current_amount >= project.goal_amount;
 
         const statusBadge = project.status === 'active' ? '<span style="background: #28a745; color: white; padding: 4px 12px; border-radius: 4px; font-size: 0.9rem;">Active</span>' :
             project.status === 'funded' ? '<span style="background: #007bff; color: white; padding: 4px 12px; border-radius: 4px; font-size: 0.9rem;">Funded</span>' :
@@ -544,7 +202,7 @@ async function openProjectModal(projectId) {
                             but no real blockchain transaction will occur.
                         </div>
                     ` : ''}
-                    <form id="funding-form" onsubmit="fundProject(event, ${project.id})">
+                    <form id="funding-form" onsubmit="fundProject(event, ${project.id}); return false;">
                         <div class="form-group">
                             <label for="funding-amount">Amount (ETH):</label>
                             <input type="number" id="funding-amount" step="0.001" min="0.001" required>
@@ -552,7 +210,7 @@ async function openProjectModal(projectId) {
                         <div class="form-group">
                             <label for="contributor-address">Your Wallet Address:</label>
                             <input type="text" id="contributor-address" placeholder="0x..." required>
-                            ${window.ethereum && metaMaskWallet.isConnected ? `
+                            ${window.ethereum && metaMaskWallet && metaMaskWallet.isConnected ? `
                                 <small style="color: #666;">Connected wallet address will be auto-filled</small>
                             ` : ''}
                         </div>
@@ -560,7 +218,7 @@ async function openProjectModal(projectId) {
                             <button type="submit" class="btn btn-success">
                                 ${window.ethereum ? 'Fund with MetaMask' : 'Fund Project (Demo)'}
                             </button>
-                            ${window.ethereum && !metaMaskWallet.isConnected ? `
+                            ${window.ethereum && metaMaskWallet && !metaMaskWallet.isConnected ? `
                                 <small style="color: #666;">Connect wallet for real transactions</small>
                             ` : ''}
                         </div>
@@ -568,3 +226,289 @@ async function openProjectModal(projectId) {
                 </div>
             ` : ''}
 
+            ${project.status === 'active' && window.ethereum && metaMaskWallet && metaMaskWallet.isConnected &&
+              project.creator_address.toLowerCase() === metaMaskWallet.account.toLowerCase() &&
+              project.current_amount > 0 ? `
+                <div style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid #eee;">
+                    <h4>Creator Actions</h4>
+                    <button onclick="withdrawFunds(${project.id}, '${project.creator_address}', ${project.current_amount})" class="btn btn-primary">
+                        Withdraw ${project.current_amount} ETH
+                    </button>
+                </div>
+            ` : ''}
+        `;
+
+        const modal = document.getElementById('project-modal');
+        modal.style.display = 'block';
+
+        if (window.ethereum && metaMaskWallet && metaMaskWallet.isConnected) {
+            const contributorInput = document.getElementById('contributor-address');
+            if (contributorInput) {
+                contributorInput.value = metaMaskWallet.account;
+            }
+        }
+    } catch (error) {
+        console.error('Error opening project modal:', error);
+        showMessage('Error loading project details', 'error');
+    }
+}
+
+function closeModal() {
+    const modal = document.getElementById('project-modal');
+    modal.style.display = 'none';
+}
+
+async function fundProject(event, projectId) {
+    event.preventDefault();
+
+    const amount = document.getElementById('funding-amount').value;
+    const contributorAddress = document.getElementById('contributor-address').value;
+
+    if (!contributorAddress || contributorAddress.trim() === '') {
+        showMessage('Please enter a wallet address', 'error');
+        return;
+    }
+
+    try {
+        let transactionHash = null;
+
+        if (window.ethereum && metaMaskWallet && metaMaskWallet.isConnected) {
+            try {
+                const project = currentProjects.find(p => p.id === projectId);
+                if (!project) {
+                    showMessage('Project not found', 'error');
+                    return;
+                }
+
+                showMessage('Please confirm the transaction in MetaMask...', 'info');
+
+                transactionHash = await metaMaskWallet.sendTransaction(
+                    project.creator_address,
+                    parseFloat(amount)
+                );
+
+                showMessage('Transaction sent! Waiting for confirmation...', 'info');
+            } catch (metaMaskError) {
+                console.error('MetaMask transaction failed:', metaMaskError);
+                showMessage('MetaMask transaction failed: ' + metaMaskError.message, 'error');
+                return;
+            }
+        }
+
+        const response = await fetch(`/api/projects/${projectId}/fund`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                amount: parseFloat(amount),
+                contributorAddress: contributorAddress,
+                realTransactionHash: transactionHash
+            })
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+            const message = transactionHash
+                ? `Successfully funded with ${amount} ETH! Real transaction: ${transactionHash}`
+                : `Successfully funded with ${amount} ETH! Demo transaction: ${result.transactionHash}`;
+            showMessage(message, 'success');
+            closeModal();
+            loadProjects();
+        } else {
+            showMessage(result.error || 'Error funding project', 'error');
+        }
+    } catch (error) {
+        console.error('Error funding project:', error);
+        showMessage('Error funding project', 'error');
+    }
+}
+
+async function withdrawFunds(projectId, creatorAddress, amount) {
+    if (!window.ethereum || !metaMaskWallet || !metaMaskWallet.isConnected) {
+        showMessage('Please connect MetaMask to withdraw funds', 'error');
+        return;
+    }
+
+    const confirmWithdraw = confirm(`Are you sure you want to withdraw ${amount} ETH? This action cannot be undone.`);
+    if (!confirmWithdraw) {
+        return;
+    }
+
+    try {
+        showMessage('Processing withdrawal...', 'info');
+
+        const response = await fetch(`/api/projects/${projectId}/withdraw`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                creatorAddress: metaMaskWallet.account
+            })
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+            showMessage(`Successfully withdrew ${result.amount} ETH! Transaction: ${result.transactionHash}`, 'success');
+            closeModal();
+            loadProjects();
+        } else {
+            showMessage(result.error || 'Error withdrawing funds', 'error');
+        }
+    } catch (error) {
+        console.error('Error withdrawing funds:', error);
+        showMessage('Error withdrawing funds', 'error');
+    }
+}
+
+function setupFormHandlers() {
+    const createForm = document.getElementById('create-form');
+    if (createForm) {
+        createForm.addEventListener('submit', async function(event) {
+            event.preventDefault();
+
+            const title = document.getElementById('title').value;
+            const description = document.getElementById('description').value;
+            const goalAmount = document.getElementById('goalAmount').value;
+            const creatorAddress = document.getElementById('creatorAddress').value;
+            const deadline = document.getElementById('deadline').value;
+
+            if (window.ethereum && !/^0x[a-fA-F0-9]{40}$/.test(creatorAddress)) {
+                showMessage('Please enter a valid Ethereum address (0x...)', 'error');
+                return;
+            }
+
+            let deadlineDate = null;
+            if (deadline) {
+                deadlineDate = new Date(deadline);
+                const now = new Date();
+                if (deadlineDate <= now) {
+                    showMessage('Deadline must be in the future', 'error');
+                    return;
+                }
+            }
+
+            try {
+                const response = await fetch('/api/projects', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        title,
+                        description,
+                        goalAmount: parseFloat(goalAmount),
+                        creatorAddress,
+                        deadline: deadlineDate ? deadlineDate.toISOString() : null
+                    })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    showMessage('Project created successfully!', 'success');
+                    createForm.reset();
+                    const projectsBtn = document.querySelector('.nav-btn');
+                    if (projectsBtn) {
+                        showSection({ target: projectsBtn }, 'projects');
+                    }
+                    loadProjects();
+                } else {
+                    showMessage(result.error || 'Error creating project', 'error');
+                }
+            } catch (error) {
+                console.error('Error creating project:', error);
+                showMessage('Error creating project', 'error');
+            }
+        });
+    }
+}
+
+async function loadBlockchainInfo() {
+    try {
+        const response = await fetch('/api/blockchain');
+        const blockchainData = await response.json();
+
+        const blockchainInfo = document.getElementById('blockchain-info');
+        blockchainInfo.innerHTML = `
+            <div class="blockchain-info">
+                <h3>Blockchain Status</h3>
+                <p><strong>Chain Valid:</strong> ${blockchainData.isValid ? 'Yes' : 'No'}</p>
+                <p><strong>Total Blocks:</strong> ${blockchainData.blocks.length}</p>
+            </div>
+
+            <div>
+                <h3>Recent Blocks</h3>
+                ${blockchainData.blocks.slice(-5).reverse().map((block, index) => `
+                    <div class="block">
+                        <h4>Block #${blockchainData.blocks.length - index - 1}</h4>
+                        <p><strong>Hash:</strong> ${block.hash}</p>
+                        <p><strong>Previous Hash:</strong> ${block.previousHash}</p>
+                        <p><strong>Timestamp:</strong> ${new Date(block.timestamp).toLocaleString()}</p>
+                        <p><strong>Nonce:</strong> ${block.nonce}</p>
+                        <p><strong>Transactions:</strong> ${block.transactions.length}</p>
+
+                        ${block.transactions.length > 0 ? `
+                            <div style="margin-top: 1rem;">
+                                <strong>Transactions:</strong>
+                                ${block.transactions.map(tx => `
+                                    <div class="transaction">
+                                        <strong>${tx.type}:</strong> ${tx.amount} ETH
+                                        <br><small>From: ${tx.fromAddress || 'System'}</small>
+                                        <br><small>To: ${tx.toAddress}</small>
+                                        ${tx.projectId ? `<br><small>Project ID: ${tx.projectId}</small>` : ''}
+                                    </div>
+                                `).join('')}
+                            </div>
+                        ` : ''}
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    } catch (error) {
+        console.error('Error loading blockchain info:', error);
+        showMessage('Error loading blockchain information', 'error');
+    }
+}
+
+function escapeHtml(unsafe) {
+    if (!unsafe) return '';
+    return unsafe
+         .replace(/&/g, "&amp;")
+         .replace(/</g, "&lt;")
+         .replace(/>/g, "&gt;")
+         .replace(/"/g, "&quot;")
+         .replace(/'/g, "&#039;");
+}
+
+function showMessage(message, type) {
+    const existingMessages = document.querySelectorAll('.success-message, .error-message, .info-message');
+    existingMessages.forEach(msg => msg.remove());
+
+    const messageDiv = document.createElement('div');
+    messageDiv.className = type === 'success' ? 'success-message' :
+                          type === 'info' ? 'info-message' : 'error-message';
+    messageDiv.textContent = message;
+
+    const activeSection = document.querySelector('.section.active');
+    if (activeSection) {
+        activeSection.insertBefore(messageDiv, activeSection.firstChild);
+    }
+
+    const timeout = type === 'info' ? 10000 : 5000;
+    setTimeout(() => {
+        if (messageDiv.parentNode) {
+            messageDiv.remove();
+        }
+    }, timeout);
+}
+
+window.addEventListener('click', function(event) {
+    const modal = document.getElementById('project-modal');
+    if (event.target === modal) {
+        closeModal();
+    }
+});
