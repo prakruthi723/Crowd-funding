@@ -1,5 +1,27 @@
 let currentProjects = [];
 
+// Helper function to format timestamps correctly
+function formatTimestamp(timestamp) {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) {
+        return 'Just now';
+    } else if (diffMins < 60) {
+        return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
+    } else if (diffHours < 24) {
+        return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+    } else if (diffDays < 7) {
+        return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+    } else {
+        return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     loadProjects();
     setupFormHandlers();
@@ -189,13 +211,16 @@ async function openProjectModal(projectId) {
 
                     <h4 style="margin-top: 1.5rem;">Recent Contributions:</h4>
                     <div style="max-height: 200px; overflow-y: auto; margin-top: 1rem;">
-                        ${project.contributions.slice(-5).reverse().map(contribution => `
+                        ${project.contributions.slice(-5).reverse().map(contribution => {
+                            const isEthereumTx = contribution.transaction_hash && contribution.transaction_hash.startsWith('0x') && contribution.transaction_hash.length === 66;
+                            return `
                             <div class="transaction">
                                 <strong>${contribution.amount} ETH</strong> from ${contribution.contributor_address.substring(0, 10)}...
-                                <br><small>Transaction: ${contribution.transaction_hash || 'N/A'}</small>
-                                <br><small>${new Date(contribution.created_at).toLocaleString()}</small>
+                                ${isEthereumTx ? '<span style="background: #28a745; color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.7rem; margin-left: 0.5rem;">ETH</span>' : ''}
+                                <br><small>TX: ${contribution.transaction_hash ? contribution.transaction_hash.substring(0, 20) + '...' : 'N/A'}</small>
+                                <br><small>${formatTimestamp(contribution.created_at)}</small>
                             </div>
-                        `).join('')}
+                        `}).join('')}
                     </div>
                 </div>
             ` : '<p style="color: #666; text-align: center; padding: 1rem; background: #f8f9fa; border-radius: 8px;">No contributions yet. Be the first to fund this project!</p>'}
@@ -205,8 +230,7 @@ async function openProjectModal(projectId) {
                     <h4>Fund this Project</h4>
                     ${!window.ethereum ? `
                         <div class="metamask-notice" style="margin-bottom: 1rem;">
-                            <strong>Note:</strong> MetaMask not detected. You can still fund with demo addresses,
-                            but no real blockchain transaction will occur.
+                            <strong>Note:</strong> MetaMask not detected. You can still fund with demo addresses.
                         </div>
                     ` : ''}
                     <form id="funding-form" onsubmit="fundProject(event, ${project.id}); return false;">
@@ -221,13 +245,19 @@ async function openProjectModal(projectId) {
                                 <small style="color: #666;">Connected wallet address will be auto-filled</small>
                             ` : ''}
                         </div>
+                        ${window.ethereum && metaMaskWallet && metaMaskWallet.isConnected ? `
+                            <div class="form-group">
+                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                    <input type="checkbox" id="use-fake-transaction" style="width: auto;">
+                                    <span>Use Demo Transaction (faster, no gas fees)</span>
+                                </label>
+                                <small style="color: #666;">Check this to create a demo transaction instead of a real blockchain transaction</small>
+                            </div>
+                        ` : ''}
                         <div style="display: flex; gap: 1rem; align-items: center;">
                             <button type="submit" class="btn btn-success">
-                                ${window.ethereum ? 'Fund with MetaMask' : 'Fund Project (Demo)'}
+                                Fund Project
                             </button>
-                            ${window.ethereum && metaMaskWallet && !metaMaskWallet.isConnected ? `
-                                <small style="color: #666;">Connect wallet for real transactions</small>
-                            ` : ''}
                         </div>
                     </form>
                 </div>
@@ -262,7 +292,7 @@ async function openProjectModal(projectId) {
                             <div class="transaction refund-item">
                                 <strong>${refund.refund_amount} ETH</strong> refunded to ${refund.contributor_address.substring(0, 10)}...
                                 <br><small>Transaction: ${refund.transaction_hash || 'N/A'}</small>
-                                <br><small>${new Date(refund.created_at).toLocaleString()}</small>
+                                <br><small>${formatTimestamp(refund.created_at)}</small>
                                 <br><small style="color: #28a745;">Status: ${refund.status}</small>
                             </div>
                         `).join('')}
@@ -302,6 +332,7 @@ async function fundProject(event, projectId) {
 
     const amount = document.getElementById('funding-amount').value;
     const contributorAddress = document.getElementById('contributor-address').value;
+    const useFakeTransaction = document.getElementById('use-fake-transaction').checked;
 
     if (!contributorAddress || contributorAddress.trim() === '') {
         showMessage('Please enter a wallet address', 'error');
@@ -310,8 +341,9 @@ async function fundProject(event, projectId) {
 
     try {
         let transactionHash = null;
+        let isRealTransaction = false;
 
-        if (window.ethereum && metaMaskWallet && metaMaskWallet.isConnected) {
+        if (window.ethereum && metaMaskWallet && metaMaskWallet.isConnected && !useFakeTransaction) {
             try {
                 const project = currentProjects.find(p => p.id === projectId);
                 if (!project) {
@@ -326,6 +358,7 @@ async function fundProject(event, projectId) {
                     parseFloat(amount)
                 );
 
+                isRealTransaction = true;
                 showMessage('Transaction sent! Waiting for confirmation...', 'info');
             } catch (metaMaskError) {
                 console.error('MetaMask transaction failed:', metaMaskError);
@@ -342,16 +375,17 @@ async function fundProject(event, projectId) {
             body: JSON.stringify({
                 amount: parseFloat(amount),
                 contributorAddress: contributorAddress,
-                realTransactionHash: transactionHash
+                realTransactionHash: transactionHash,
+                isFakeTransaction: useFakeTransaction
             })
         });
 
         const result = await response.json();
 
         if (response.ok) {
-            const message = transactionHash
+            const message = isRealTransaction
                 ? `Successfully funded with ${amount} ETH! Real transaction: ${transactionHash}`
-                : `Successfully funded with ${amount} ETH! Demo transaction: ${result.transactionHash}`;
+                : `Successfully funded with ${amount} ETH! Transaction: ${result.transactionHash}`;
             showMessage(message, 'success');
             closeModal();
             loadProjects();

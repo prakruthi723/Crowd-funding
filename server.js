@@ -180,12 +180,12 @@ app.get('/api/projects/:id', (req, res) => {
 // Fund a project
 app.post('/api/projects/:id/fund', (req, res) => {
     const projectId = req.params.id;
-    const { amount, contributorAddress, realTransactionHash } = req.body;
-    
+    const { amount, contributorAddress, realTransactionHash, isFakeTransaction } = req.body;
+
     if (!amount || !contributorAddress) {
         return res.status(400).json({ error: 'Amount and contributor address are required' });
     }
-    
+
     // Get project details
     db.get('SELECT * FROM projects WHERE id = ?', [projectId], (err, project) => {
         if (err) {
@@ -196,19 +196,19 @@ app.post('/api/projects/:id/fund', (req, res) => {
             res.status(404).json({ error: 'Project not found' });
             return;
         }
-        
+
         // Create blockchain transaction
         const transaction = new Transaction(contributorAddress, project.creator_address, parseFloat(amount), 'funding', projectId);
-        
+
         // Add transaction to blockchain
         crowdfundingBlockchain.addTransaction(transaction);
-        
+
         // Mine the block
         crowdfundingBlockchain.minePendingTransactions('miner-address');
-        
+
         // Update project funding amount
         const newAmount = project.current_amount + parseFloat(amount);
-        
+
         db.run(
             'UPDATE projects SET current_amount = ? WHERE id = ?',
             [newAmount, projectId],
@@ -217,10 +217,21 @@ app.post('/api/projects/:id/fund', (req, res) => {
                     res.status(500).json({ error: err.message });
                     return;
                 }
-                
-                // Record contribution
-                const transactionHashToStore = realTransactionHash || transaction.hash;
-                
+
+                // Generate realistic looking fake transaction hash if requested
+                let transactionHashToStore;
+                if (isFakeTransaction || !realTransactionHash) {
+                    if (isFakeTransaction) {
+                        // Generate a realistic Ethereum transaction hash format
+                        const crypto = require('crypto');
+                        transactionHashToStore = '0x' + crypto.randomBytes(32).toString('hex');
+                    } else {
+                        transactionHashToStore = transaction.hash;
+                    }
+                } else {
+                    transactionHashToStore = realTransactionHash;
+                }
+
                 db.run(
                     'INSERT INTO contributions (project_id, contributor_address, amount, transaction_hash) VALUES (?, ?, ?, ?)',
                     [projectId, contributorAddress, amount, transactionHashToStore],
@@ -229,11 +240,11 @@ app.post('/api/projects/:id/fund', (req, res) => {
                             res.status(500).json({ error: err.message });
                             return;
                         }
-                        
-                        res.json({ 
+
+                        res.json({
                             message: 'Funding successful',
                             transactionHash: transactionHashToStore,
-                            realTransaction: !!realTransactionHash,
+                            realTransaction: !!realTransactionHash && !isFakeTransaction,
                             newAmount: newAmount
                         });
                     }
