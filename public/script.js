@@ -2,7 +2,16 @@ let currentProjects = [];
 
 // Helper function to format timestamps correctly
 function formatTimestamp(timestamp) {
-    const date = new Date(timestamp);
+    // SQLite stores timestamps in UTC format, ensure proper parsing
+    let date;
+    if (timestamp.includes('T')) {
+        // ISO format with timezone
+        date = new Date(timestamp);
+    } else {
+        // SQLite format without timezone - treat as UTC
+        date = new Date(timestamp + ' UTC');
+    }
+
     const now = new Date();
     const diffMs = now - date;
     const diffMins = Math.floor(diffMs / 60000);
