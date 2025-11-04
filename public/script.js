@@ -138,8 +138,8 @@ async function openProjectModal(projectId) {
             deadline = new Date(project.deadline);
             const now = new Date();
             timeRemaining = deadline - now;
-            daysRemaining = Math.ceil(timeRemaining / (1000 * 60 * 60 * 24));
-            hoursRemaining = Math.ceil(timeRemaining / (1000 * 60 * 60));
+            daysRemaining = Math.floor(timeRemaining / (1000 * 60 * 60 * 24));
+            hoursRemaining = Math.floor(timeRemaining / (1000 * 60 * 60));
             isExpired = timeRemaining <= 0;
 
             if (isExpired) {
