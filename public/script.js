@@ -132,22 +132,26 @@ async function openProjectModal(projectId) {
         const progress = (project.current_amount / project.goal_amount) * 100;
         const progressCapped = Math.min(progress, 100);
 
-        let deadline, timeRemaining, daysRemaining, hoursRemaining, isExpired, timeRemainingText;
+        let deadline, timeRemaining, daysRemaining, hoursRemaining, minutesRemaining, secondsRemaining, isExpired, timeRemainingText;
 
         if (project.deadline) {
             deadline = new Date(project.deadline);
             const now = new Date();
             timeRemaining = deadline - now;
             daysRemaining = Math.floor(timeRemaining / (1000 * 60 * 60 * 24));
-            hoursRemaining = Math.floor(timeRemaining / (1000 * 60 * 60));
+            hoursRemaining = Math.floor((timeRemaining % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+            minutesRemaining = Math.floor((timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
+            secondsRemaining = Math.floor((timeRemaining % (1000 * 60)) / 1000);
             isExpired = timeRemaining <= 0;
 
             if (isExpired) {
                 timeRemainingText = '<span style="color: #dc3545;">Expired</span>';
             } else if (daysRemaining > 0) {
-                timeRemainingText = `<span style="color: #28a745;">${daysRemaining} day${daysRemaining !== 1 ? 's' : ''} remaining</span>`;
+                timeRemainingText = `<span style="color: #28a745;">${daysRemaining}d ${hoursRemaining}h ${minutesRemaining}m ${secondsRemaining}s remaining</span>`;
+            } else if (hoursRemaining > 0) {
+                timeRemainingText = `<span style="color: #ffc107;">${hoursRemaining}h ${minutesRemaining}m ${secondsRemaining}s remaining</span>`;
             } else {
-                timeRemainingText = `<span style="color: #ffc107;">${hoursRemaining} hour${hoursRemaining !== 1 ? 's' : ''} remaining</span>`;
+                timeRemainingText = `<span style="color: #ff6b6b;"><strong>${minutesRemaining}m ${secondsRemaining}s remaining</strong></span>`;
             }
         } else {
             isExpired = false;
@@ -186,7 +190,7 @@ async function openProjectModal(projectId) {
                     ${project.deadline ? `
                         <div>
                             <p style="margin: 0; color: #666; font-size: 0.9rem;">Time Remaining</p>
-                            <p style="margin: 0.25rem 0 0 0;">${timeRemainingText}</p>
+                            <p style="margin: 0.25rem 0 0 0;" id="countdown-timer">${timeRemainingText}</p>
                         </div>
                     ` : ''}
                     <div>
@@ -234,7 +238,7 @@ async function openProjectModal(projectId) {
                 </div>
             ` : '<p style="color: #666; text-align: center; padding: 1rem; background: #f8f9fa; border-radius: 8px;">No contributions yet. Be the first to fund this project!</p>'}
 
-            ${!isExpired && project.status === 'active' ? `
+            ${!isExpired && project.status === 'active' && project.current_amount < project.goal_amount ? `
                 <div class="funding-form">
                     <h4>Fund this Project</h4>
                     ${!window.ethereum ? `
@@ -269,6 +273,11 @@ async function openProjectModal(projectId) {
                             </button>
                         </div>
                     </form>
+                </div>
+            ` : project.status === 'active' && project.current_amount >= project.goal_amount ? `
+                <div style="padding: 1.5rem; background: linear-gradient(135deg, #28a745 0%, #20c997 100%); border-radius: 8px; color: white; text-align: center;">
+                    <h4 style="margin-top: 0;">🎉 Funding Goal Reached!</h4>
+                    <p style="margin: 0.5rem 0 0 0;">This project has reached its funding goal and is no longer accepting contributions.</p>
                 </div>
             ` : ''}
 
@@ -319,6 +328,42 @@ async function openProjectModal(projectId) {
         const modal = document.getElementById('project-modal');
         modal.style.display = 'block';
 
+        // Start real-time countdown update if deadline exists
+        if (project.deadline) {
+            const countdownElement = document.getElementById('countdown-timer');
+            if (countdownElement) {
+                const updateCountdown = () => {
+                    const deadline = new Date(project.deadline);
+                    const now = new Date();
+                    const timeRemaining = deadline - now;
+
+                    if (timeRemaining <= 0) {
+                        countdownElement.innerHTML = '<span style="color: #dc3545;">Expired</span>';
+                        clearInterval(countdownInterval);
+                    } else {
+                        const days = Math.floor(timeRemaining / (1000 * 60 * 60 * 24));
+                        const hours = Math.floor((timeRemaining % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                        const minutes = Math.floor((timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
+                        const seconds = Math.floor((timeRemaining % (1000 * 60)) / 1000);
+
+                        if (days > 0) {
+                            countdownElement.innerHTML = `<span style="color: #28a745;">${days}d ${hours}h ${minutes}m ${seconds}s remaining</span>`;
+                        } else if (hours > 0) {
+                            countdownElement.innerHTML = `<span style="color: #ffc107;">${hours}h ${minutes}m ${seconds}s remaining</span>`;
+                        } else {
+                            countdownElement.innerHTML = `<span style="color: #ff6b6b;"><strong>${minutes}m ${seconds}s remaining</strong></span>`;
+                        }
+                    }
+                };
+
+                updateCountdown();
+                const countdownInterval = setInterval(updateCountdown, 1000);
+                
+                // Store interval ID on the modal for cleanup
+                modal.countdownInterval = countdownInterval;
+            }
+        }
+
         if (window.ethereum && metaMaskWallet && metaMaskWallet.isConnected) {
             const contributorInput = document.getElementById('contributor-address');
             if (contributorInput) {
@@ -333,6 +378,11 @@ async function openProjectModal(projectId) {
 
 function closeModal() {
     const modal = document.getElementById('project-modal');
+    // Clear countdown interval
+    if (modal.countdownInterval) {
+        clearInterval(modal.countdownInterval);
+        modal.countdownInterval = null;
+    }
     modal.style.display = 'none';
 }
 

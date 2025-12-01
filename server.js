@@ -197,6 +197,25 @@ app.post('/api/projects/:id/fund', (req, res) => {
             return;
         }
 
+        // Check if project goal is already reached
+        if (project.current_amount >= project.goal_amount) {
+            return res.status(400).json({ error: 'Project goal has already been reached. No more contributions are accepted.' });
+        }
+
+        // Check if project status is funded
+        if (project.status === 'funded') {
+            return res.status(400).json({ error: 'This project has been fully funded and no longer accepts contributions.' });
+        }
+
+        // Check if project is expired
+        if (project.deadline) {
+            const now = new Date();
+            const deadline = new Date(project.deadline);
+            if (now > deadline) {
+                return res.status(400).json({ error: 'This project campaign has expired.' });
+            }
+        }
+
         // Create blockchain transaction
         const transaction = new Transaction(contributorAddress, project.creator_address, parseFloat(amount), 'funding', projectId);
 
