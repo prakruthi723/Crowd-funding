@@ -216,6 +216,12 @@ app.post('/api/projects/:id/fund', (req, res) => {
             }
         }
 
+        // Prevent over-contribution: calculate remaining goal and reject if exceeded
+        const remainingGoal = project.goal_amount - project.current_amount;
+        if (parseFloat(amount) > remainingGoal) {
+            return res.status(400).json({ error: `Cannot contribute more than remaining goal (${remainingGoal.toFixed(4)}). Max amount accepted: ${remainingGoal.toFixed(4)}` });
+        }
+
         // Create blockchain transaction
         const transaction = new Transaction(contributorAddress, project.creator_address, parseFloat(amount), 'funding', projectId);
 

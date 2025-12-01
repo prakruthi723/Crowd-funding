@@ -414,7 +414,8 @@ async function fundProject(event, projectId) {
     event.preventDefault();
 
     const amountInput = document.getElementById('funding-amount').value;
-    const amount = parseFloat(amountInput).toFixed(4);
+    // Fix precision: use Math.round to avoid floating-point errors
+    const amount = Math.round(parseFloat(amountInput) * 10000) / 10000;
     const contributorAddress = document.getElementById('contributor-address').value;
     const useFakeTransaction = document.getElementById('use-fake-transaction');
     const useFakeTx = useFakeTransaction && useFakeTransaction.checked ? true : false;
@@ -424,9 +425,19 @@ async function fundProject(event, projectId) {
         return;
     }
 
-    if (parseFloat(amount) <= 0) {
+    if (amount <= 0) {
         showMessage('Amount must be greater than 0', 'error');
         return;
+    }
+
+    // Client-side validation: check against project goal
+    const project = currentProjects.find(p => p.id === projectId);
+    if (project) {
+        const remainingGoal = project.goal_amount - project.current_amount;
+        if (amount > remainingGoal) {
+            showMessage(`Cannot contribute more than remaining goal. Max amount: ${remainingGoal.toFixed(4)}`, 'error');
+            return;
+        }
     }
 
     try {
@@ -463,7 +474,7 @@ async function fundProject(event, projectId) {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                amount: parseFloat(amount),
+                amount: amount,
                 contributorAddress: contributorAddress,
                 realTransactionHash: transactionHash,
                 isFakeTransaction: useFakeTx
