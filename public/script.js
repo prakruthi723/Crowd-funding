@@ -413,12 +413,19 @@ function closeModal() {
 async function fundProject(event, projectId) {
     event.preventDefault();
 
-    const amount = document.getElementById('funding-amount').value;
+    const amountInput = document.getElementById('funding-amount').value;
+    const amount = parseFloat(amountInput).toFixed(4);
     const contributorAddress = document.getElementById('contributor-address').value;
-    const useFakeTransaction = document.getElementById('use-fake-transaction').checked;
+    const useFakeTransaction = document.getElementById('use-fake-transaction');
+    const useFakeTx = useFakeTransaction && useFakeTransaction.checked ? true : false;
 
     if (!contributorAddress || contributorAddress.trim() === '') {
         showMessage('Please enter a wallet address', 'error');
+        return;
+    }
+
+    if (parseFloat(amount) <= 0) {
+        showMessage('Amount must be greater than 0', 'error');
         return;
     }
 
@@ -426,7 +433,7 @@ async function fundProject(event, projectId) {
         let transactionHash = null;
         let isRealTransaction = false;
 
-        if (window.ethereum && metaMaskWallet && metaMaskWallet.isConnected && !useFakeTransaction) {
+        if (window.ethereum && metaMaskWallet && metaMaskWallet.isConnected && !useFakeTx) {
             try {
                 const project = currentProjects.find(p => p.id === projectId);
                 if (!project) {
@@ -459,16 +466,17 @@ async function fundProject(event, projectId) {
                 amount: parseFloat(amount),
                 contributorAddress: contributorAddress,
                 realTransactionHash: transactionHash,
-                isFakeTransaction: useFakeTransaction
+                isFakeTransaction: useFakeTx
             })
         });
 
         const result = await response.json();
 
         if (response.ok) {
+            const displayAmount = amount;
             const message = isRealTransaction
-                ? `Successfully funded with ${amount} ETH! Real transaction: ${transactionHash}`
-                : `Successfully funded with ${amount} ETH! Transaction: ${result.transactionHash}`;
+                ? `Successfully funded with ${displayAmount} ETH! Real transaction: ${transactionHash}`
+                : `Successfully funded with ${displayAmount} ETH! Transaction: ${result.transactionHash}`;
             showMessage(message, 'success');
             closeModal();
             loadProjects();
@@ -617,30 +625,45 @@ function setupFormHandlers() {
 async function loadBlockchainInfo() {
     try {
         const response = await fetch('/api/blockchain');
+        
+        if (!response.ok) {
+            throw new Error('Failed to fetch blockchain data');
+        }
+        
         const blockchainData = await response.json();
-
         const blockchainInfo = document.getElementById('blockchain-info');
+        
+        if (!blockchainData.blocks || blockchainData.blocks.length === 0) {
+            blockchainInfo.innerHTML = `
+                <div class="blockchain-info">
+                    <h3>Blockchain Status</h3>
+                    <p>No blocks mined yet. Make a transaction to generate blocks!</p>
+                </div>
+            `;
+            return;
+        }
+        
         blockchainInfo.innerHTML = `
             <div class="blockchain-info">
                 <h3>Blockchain Status</h3>
-                <p><strong>Chain Valid:</strong> ${blockchainData.isValid ? 'Yes' : 'No'}</p>
+                <p><strong>Chain Valid:</strong> ${blockchainData.isValid ? '✅ Yes' : '❌ No'}</p>
                 <p><strong>Total Blocks:</strong> ${blockchainData.blocks.length}</p>
             </div>
 
             <div>
-                <h3>Recent Blocks</h3>
+                <h3>📦 Recent Blocks (Last 5)</h3>
                 ${blockchainData.blocks.slice(-5).reverse().map((block, index) => `
                     <div class="block">
                         <h4>Block #${blockchainData.blocks.length - index - 1}</h4>
-                        <p><strong>Hash:</strong> ${block.hash}</p>
-                        <p><strong>Previous Hash:</strong> ${block.previousHash}</p>
+                        <p><strong>Hash:</strong> <code style="word-break: break-all; font-size: 0.85rem;">${block.hash}</code></p>
+                        <p><strong>Previous Hash:</strong> <code style="word-break: break-all; font-size: 0.85rem;">${block.previousHash}</code></p>
                         <p><strong>Timestamp:</strong> ${new Date(block.timestamp).toLocaleString()}</p>
                         <p><strong>Nonce:</strong> ${block.nonce}</p>
                         <p><strong>Transactions:</strong> ${block.transactions.length}</p>
 
                         ${block.transactions.length > 0 ? `
                             <div style="margin-top: 1rem;">
-                                <strong>Transactions:</strong>
+                                <strong>💸 Transactions:</strong>
                                 ${block.transactions.map(tx => `
                                     <div class="transaction">
                                         <strong>${tx.type}:</strong> ${tx.amount} ETH
@@ -650,14 +673,19 @@ async function loadBlockchainInfo() {
                                     </div>
                                 `).join('')}
                             </div>
-                        ` : ''}
+                        ` : '<p style="color: #999;">No transactions in this block</p>'}
                     </div>
                 `).join('')}
             </div>
         `;
     } catch (error) {
         console.error('Error loading blockchain info:', error);
-        showMessage('Error loading blockchain information', 'error');
+        const blockchainInfo = document.getElementById('blockchain-info');
+        blockchainInfo.innerHTML = `
+            <div class="metamask-notice" style="margin: 0;">
+                <strong>⚠️ Error:</strong> ${error.message || 'Failed to load blockchain information'}
+            </div>
+        `;
     }
 }
 

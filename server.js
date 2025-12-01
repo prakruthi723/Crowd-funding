@@ -389,19 +389,27 @@ app.post('/api/projects/:id/withdraw', (req, res) => {
             return;
         }
 
-        // Verify creator
-        if (project.creator_address.toLowerCase() !== creatorAddress.toLowerCase()) {
-            return res.status(403).json({ error: 'Only the creator can withdraw funds' });
+        // Verify creator (case-insensitive comparison)
+        const projectCreator = (project.creator_address || '').toLowerCase().trim();
+        const requestCreator = (creatorAddress || '').toLowerCase().trim();
+        
+        if (projectCreator !== requestCreator) {
+            return res.status(403).json({ error: 'Only the project creator can withdraw funds' });
         }
 
         // Check if goal is met
         if (project.current_amount < project.goal_amount) {
-            return res.status(400).json({ error: 'Goal not reached yet. Cannot withdraw funds.' });
+            return res.status(400).json({ error: `Goal not reached yet (${project.current_amount} / ${project.goal_amount} ETH). Cannot withdraw funds.` });
         }
 
         // Check if already withdrawn
         if (project.status === 'withdrawn') {
-            return res.status(400).json({ error: 'Funds already withdrawn' });
+            return res.status(400).json({ error: 'Funds have already been withdrawn from this project' });
+        }
+        
+        // Check if project is refunded
+        if (project.status === 'refunded') {
+            return res.status(400).json({ error: 'Cannot withdraw funds from a refunded project' });
         }
 
         // Create withdrawal blockchain transaction
@@ -455,14 +463,21 @@ app.post('/api/projects/:id/auto-refund', (req, res) => {
             return;
         }
 
-        // Check if deadline passed and goal not met
-        const now = new Date();
-        const deadline = new Date(project.deadline);
-        const isExpired = now > deadline;
+        // Check if project status is failed or if campaign expired without meeting goal
+        const isFailed = project.status === 'failed';
+        let isExpired = false;
+        
+        if (project.deadline) {
+            const now = new Date();
+            const deadline = new Date(project.deadline);
+            isExpired = now > deadline;
+        }
+        
         const goalMet = project.current_amount >= project.goal_amount;
 
-        if (!isExpired || goalMet) {
-            return res.status(400).json({ error: 'Campaign is still active or goal was met' });
+        // Allow refund if: (1) project is marked as failed, OR (2) deadline passed and goal not met
+        if (!isFailed && (!isExpired || goalMet)) {
+            return res.status(400).json({ error: 'This campaign cannot be refunded. Either it is still active or the goal was met.' });
         }
 
         // Get all contributions that haven't been refunded
