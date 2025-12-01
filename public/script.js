@@ -241,11 +241,7 @@ async function openProjectModal(projectId) {
             ${!isExpired && project.status === 'active' && project.current_amount < project.goal_amount ? `
                 <div class="funding-form">
                     <h4>Fund this Project</h4>
-                    ${!window.ethereum ? `
-                        <div class="metamask-notice" style="margin-bottom: 1rem;">
-                            <strong>Note:</strong> MetaMask not detected. You can still fund with demo addresses.
-                        </div>
-                    ` : ''}
+                    <div id="metamask-notice-container"></div>
                     <form id="funding-form" onsubmit="fundProject(event, ${project.id}); return false;">
                         <div class="form-group">
                             <label for="funding-amount">Amount (ETH):</label>
@@ -254,19 +250,9 @@ async function openProjectModal(projectId) {
                         <div class="form-group">
                             <label for="contributor-address">Your Wallet Address:</label>
                             <input type="text" id="contributor-address" placeholder="0x..." required>
-                            ${window.ethereum && metaMaskWallet && metaMaskWallet.isConnected ? `
-                                <small style="color: #666;">Connected wallet address will be auto-filled</small>
-                            ` : ''}
+                            <div id="wallet-status-container"></div>
                         </div>
-                        ${window.ethereum && metaMaskWallet && metaMaskWallet.isConnected ? `
-                            <div class="form-group">
-                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                                    <input type="checkbox" id="use-fake-transaction" style="width: auto;">
-                                    <span>Use Demo Transaction (faster, no gas fees)</span>
-                                </label>
-                                <small style="color: #666;">Check this to create a demo transaction instead of a real blockchain transaction</small>
-                            </div>
-                        ` : ''}
+                        <div id="demo-transaction-container"></div>
                         <div style="display: flex; gap: 1rem; align-items: center;">
                             <button type="submit" class="btn btn-success">
                                 Fund Project
@@ -327,6 +313,44 @@ async function openProjectModal(projectId) {
 
         const modal = document.getElementById('project-modal');
         modal.style.display = 'block';
+
+        // Populate metamask notice dynamically
+        const metamaskNoticeContainer = document.getElementById('metamask-notice-container');
+        if (metamaskNoticeContainer) {
+            if (!window.ethereum) {
+                metamaskNoticeContainer.innerHTML = `
+                    <div class="metamask-notice" style="margin-bottom: 1rem;">
+                        <strong>Note:</strong> MetaMask not detected. You can still fund with demo addresses.
+                    </div>
+                `;
+            } else {
+                metamaskNoticeContainer.innerHTML = '';
+            }
+        }
+
+        // Populate wallet status dynamically
+        const walletStatusContainer = document.getElementById('wallet-status-container');
+        if (walletStatusContainer && window.ethereum && metaMaskWallet && metaMaskWallet.isConnected) {
+            walletStatusContainer.innerHTML = `<small style="color: #666;">Connected wallet address will be auto-filled</small>`;
+        } else if (walletStatusContainer) {
+            walletStatusContainer.innerHTML = '';
+        }
+
+        // Populate demo transaction checkbox dynamically
+        const demoTransactionContainer = document.getElementById('demo-transaction-container');
+        if (demoTransactionContainer && window.ethereum && metaMaskWallet && metaMaskWallet.isConnected) {
+            demoTransactionContainer.innerHTML = `
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="use-fake-transaction" style="width: auto;">
+                        <span>Use Demo Transaction (faster, no gas fees)</span>
+                    </label>
+                    <small style="color: #666;">Check this to create a demo transaction instead of a real blockchain transaction</small>
+                </div>
+            `;
+        } else if (demoTransactionContainer) {
+            demoTransactionContainer.innerHTML = '';
+        }
 
         // Start real-time countdown update if deadline exists
         if (project.deadline) {

@@ -181,12 +181,69 @@ class MetaMaskWallet {
 
             // Auto-fill wallet addresses in forms
             this.autoFillWalletAddresses();
+            
+            // Update modal funding form UI
+            this.updateFundingFormUI();
         } else {
             connectBtn.textContent = 'Connect Wallet';
             connectBtn.classList.remove('btn-secondary');
             connectBtn.classList.add('btn-primary');
             
             walletInfo.style.display = 'none';
+            
+            // Update modal funding form UI
+            this.updateFundingFormUI();
+        }
+    }
+
+    // Update funding form UI when connection status changes
+    updateFundingFormUI() {
+        // Update metamask notice
+        const metamaskNoticeContainer = document.getElementById('metamask-notice-container');
+        if (metamaskNoticeContainer) {
+            if (!window.ethereum) {
+                metamaskNoticeContainer.innerHTML = `
+                    <div class="metamask-notice" style="margin-bottom: 1rem;">
+                        <strong>Note:</strong> MetaMask not detected. You can still fund with demo addresses.
+                    </div>
+                `;
+            } else {
+                metamaskNoticeContainer.innerHTML = '';
+            }
+        }
+
+        // Update wallet status
+        const walletStatusContainer = document.getElementById('wallet-status-container');
+        if (walletStatusContainer) {
+            if (this.isConnected) {
+                walletStatusContainer.innerHTML = `<small style="color: #666;">Connected wallet address will be auto-filled</small>`;
+            } else {
+                walletStatusContainer.innerHTML = '';
+            }
+        }
+
+        // Update demo transaction checkbox
+        const demoTransactionContainer = document.getElementById('demo-transaction-container');
+        if (demoTransactionContainer) {
+            if (this.isConnected && window.ethereum) {
+                demoTransactionContainer.innerHTML = `
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                            <input type="checkbox" id="use-fake-transaction" style="width: auto;">
+                            <span>Use Demo Transaction (faster, no gas fees)</span>
+                        </label>
+                        <small style="color: #666;">Check this to create a demo transaction instead of a real blockchain transaction</small>
+                    </div>
+                `;
+            } else {
+                demoTransactionContainer.innerHTML = '';
+            }
+        }
+
+        // Auto-fill contributor address if modal is open
+        const contributorInput = document.getElementById('contributor-address');
+        if (contributorInput && this.isConnected && !contributorInput.value) {
+            contributorInput.value = this.account;
         }
     }
 
