@@ -267,14 +267,24 @@ async function openProjectModal(projectId) {
                 </div>
             ` : ''}
 
-            ${project.status === 'active' && window.ethereum && metaMaskWallet && metaMaskWallet.isConnected &&
+            ${window.ethereum && metaMaskWallet && metaMaskWallet.isConnected &&
               project.creator_address.toLowerCase() === metaMaskWallet.account.toLowerCase() &&
               project.current_amount > 0 ? `
                 <div style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid #eee;">
                     <h4>Creator Actions</h4>
-                    <button onclick="withdrawFunds(${project.id}, '${project.creator_address}', ${project.current_amount})" class="btn btn-primary">
-                        Withdraw ${project.current_amount} ETH
-                    </button>
+                    ${goalMet && project.status !== 'withdrawn' ? `
+                        <button onclick="withdrawFunds(${project.id}, '${project.creator_address}', ${project.current_amount})" class="btn btn-primary">
+                            Withdraw ${project.current_amount} ETH
+                        </button>
+                    ` : !goalMet && (campaignFailed || isExpired) ? `
+                        <button onclick="triggerAutoRefund(${project.id})" class="btn btn-warning">
+                            Process Refunds for Contributors
+                        </button>
+                    ` : goalMet && project.status === 'withdrawn' ? `
+                        <p style="color: #28a745; font-weight: bold;">✓ Funds have been withdrawn</p>
+                    ` : `
+                        <p style="color: #666;">Funding goal not yet reached (${progressCapped.toFixed(1)}%). Withdraw will be available once fully funded.</p>
+                    `}
                 </div>
             ` : ''}
 
