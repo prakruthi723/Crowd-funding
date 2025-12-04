@@ -267,24 +267,36 @@ async function openProjectModal(projectId) {
                 </div>
             ` : ''}
 
-            ${window.ethereum && metaMaskWallet && metaMaskWallet.isConnected &&
-              project.creator_address.toLowerCase() === metaMaskWallet.account.toLowerCase() &&
-              project.current_amount > 0 ? `
+            ${project.creator_address ? `
                 <div style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid #eee;">
                     <h4>Creator Actions</h4>
+                    <!-- Withdraw button is shown always for the creator section but only enabled when goal is met and user is connected as creator -->
                     ${goalMet && project.status !== 'withdrawn' ? `
-                        <button onclick="withdrawFunds(${project.id}, '${project.creator_address}', ${project.current_amount})" class="btn btn-primary">
+                        <button id="withdraw-btn-${project.id}" onclick="withdrawFunds(${project.id}, '${project.creator_address}', ${project.current_amount})" class="btn btn-primary">
                             Withdraw ${project.current_amount} ETH
-                        </button>
-                    ` : !goalMet && (campaignFailed || isExpired) ? `
-                        <button onclick="triggerAutoRefund(${project.id})" class="btn btn-warning">
-                            Process Refunds for Contributors
                         </button>
                     ` : goalMet && project.status === 'withdrawn' ? `
                         <p style="color: #28a745; font-weight: bold;">✓ Funds have been withdrawn</p>
                     ` : `
-                        <p style="color: #666;">Funding goal not yet reached (${progressCapped.toFixed(1)}%). Withdraw will be available once fully funded.</p>
+                        <button id="withdraw-btn-${project.id}" class="btn btn-primary" disabled>
+                            Withdraw ${project.current_amount} ETH
+                        </button>
+                        <p style="color: #666; margin-top: 0.5rem;">Withdraw will be available once the funding goal is fully reached (${progressCapped.toFixed(1)}% so far).</p>
                     `}
+
+                    <!-- If campaign failed/expired and refunds are possible show refund action -->
+                    ${!goalMet && (campaignFailed || isExpired) ? `
+                        <div style="margin-top: 0.75rem;">
+                            <button onclick="triggerAutoRefund(${project.id})" class="btn btn-warning">
+                                Process Refunds for Contributors
+                            </button>
+                        </div>
+                    ` : ''}
+
+                    <!-- If creator is not connected, advise to connect for withdraw -->
+                    ${window.ethereum && metaMaskWallet && metaMaskWallet.isConnected && metaMaskWallet.account && project.creator_address.toLowerCase() !== metaMaskWallet.account.toLowerCase() ? `
+                        <p style="color: #666; margin-top: 0.5rem;">Connected wallet is not the project creator. Connect the project creator wallet to withdraw.</p>
+                    ` : ''}
                 </div>
             ` : ''}
 
@@ -346,9 +358,9 @@ async function openProjectModal(projectId) {
             walletStatusContainer.innerHTML = '';
         }
 
-        // Populate demo transaction checkbox dynamically
+        // Populate demo transaction checkbox (always available as a demo/fallback)
         const demoTransactionContainer = document.getElementById('demo-transaction-container');
-        if (demoTransactionContainer && window.ethereum && metaMaskWallet && metaMaskWallet.isConnected) {
+        if (demoTransactionContainer) {
             demoTransactionContainer.innerHTML = `
                 <div class="form-group">
                     <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
@@ -358,8 +370,6 @@ async function openProjectModal(projectId) {
                     <small style="color: #666;">Check this to create a demo transaction instead of a real blockchain transaction</small>
                 </div>
             `;
-        } else if (demoTransactionContainer) {
-            demoTransactionContainer.innerHTML = '';
         }
 
         // Start real-time countdown update if deadline exists
